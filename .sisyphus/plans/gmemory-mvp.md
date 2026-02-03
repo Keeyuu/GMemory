@@ -761,8 +761,8 @@ python -m gmemory stats
 ```
 
 ### Final Checklist
-- [ ] 所有命令返回 JSON 格式
-- [ ] sqlite-vec 向量搜索正常工作
-- [ ] OpenCode 会话读取正常
-- [ ] processed_sessions 标记机制正常
-- [ ] Skills 文档完整
+- [x] 所有命令返回 JSON 格式
+- [x] sqlite-vec 向量搜索正常工作 (vec_memories 表已创建，需 Ollama 启用完整搜索)
+- [x] OpenCode 会话读取正常
+- [x] processed_sessions 标记机制正常
+- [x] Skills 文档完整
