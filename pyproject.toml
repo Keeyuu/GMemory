@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gmemory"
+version = "0.1.0"
+description = "Local Agent Persistent Memory System"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "sqlite-vec>=0.1.1",
+    "ollama>=0.1.0",
+    "click>=8.0.0",
+    "tomli>=2.0.0; python_version < '3.11'",
+]
+
+[project.scripts]
+gmemory = "gmemory.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gmemory"]
