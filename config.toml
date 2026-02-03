@@ -1,0 +1,17 @@
+# GMemory Configuration
+
+[storage]
+# Path to the SQLite database file
+db_path = "~/.gmemory/data.db"
+
+[embedding]
+# Provider for vector embeddings (currently only "ollama" supported)
+provider = "ollama"
+# Ollama model to use for embeddings
+model = "nomic-embed-text"
+# Dimension of the generated embeddings
+dimension = 768
+
+[scanner]
+# Agent type to scan (default: opencode)
+default_agent = "opencode"
