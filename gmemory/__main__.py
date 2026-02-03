@@ -1,6 +1,14 @@
 import click
 import json
 import sys
+from gmemory.commands.fetch import fetch_unprocessed_sessions
+from gmemory.commands.save import save_memory
+from gmemory.commands.mark import mark_session
+from gmemory.commands.search import search_memories
+from gmemory.commands.add import add_memory
+from gmemory.commands.update import update_memory
+from gmemory.commands.delete import delete_memory
+from gmemory.commands.stats import get_stats
 
 
 @click.group()
@@ -14,7 +22,11 @@ def cli():
 @click.option("--agent", default="opencode", help="Agent type to fetch sessions for.")
 def fetch(limit, agent):
     """Fetch unprocessed sessions from Agent logs."""
-    click.echo(json.dumps({"sessions": [], "has_more": False, "remaining": 0}))
+    try:
+        result = fetch_unprocessed_sessions(limit=limit, agent=agent)
+        click.echo(json.dumps(result))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
 
 
 @cli.command()
@@ -29,16 +41,33 @@ def fetch(limit, agent):
 @click.option("--type", help="Memory type.")
 def save(session_id, content, tags, importance, type):
     """Save a distilled memory and mark session as processed."""
-    click.echo(
-        json.dumps({"memory_id": "stub", "created": True, "session_marked": True})
-    )
+    try:
+        # Use default from save_memory if type is None
+        kwargs = {}
+        if type:
+            kwargs["memory_type"] = type
+
+        result = save_memory(
+            session_id=session_id,
+            content=content,
+            tags=tags,
+            importance=importance,
+            **kwargs,
+        )
+        click.echo(json.dumps(result))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
 
 
 @cli.command()
 @click.option("--session-id", required=True, help="Session ID to mark as processed.")
 def mark(session_id):
     """Mark a session as processed without saving a memory."""
-    click.echo(json.dumps({"session_id": session_id, "marked": True}))
+    try:
+        result = mark_session(session_id=session_id)
+        click.echo(json.dumps(result))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
 
 
 @cli.command()
@@ -48,7 +77,13 @@ def mark(session_id):
 @click.option("--limit", default=5, help="Limit the number of results.")
 def search(query, project, tags, limit):
     """Search memories using vector similarity."""
-    click.echo(json.dumps({"results": [], "total": 0}))
+    try:
+        result = search_memories(
+            query=query, project_path=project, tags=tags, limit=limit
+        )
+        click.echo(json.dumps(result))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
 
 
 @cli.command()
@@ -57,7 +92,11 @@ def search(query, project, tags, limit):
 @click.option("--importance", default="medium", help="Importance level.")
 def add(content, tags, importance):
     """Add a new memory manually."""
-    click.echo(json.dumps({"id": "stub", "created": True}))
+    try:
+        result = add_memory(content=content, tags=tags, importance=importance)
+        click.echo(json.dumps(result))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
 
 
 @cli.command()
@@ -66,29 +105,32 @@ def add(content, tags, importance):
 @click.option("--tags", help="New tags.")
 def update(mem_id, content, tags):
     """Update an existing memory."""
-    click.echo(json.dumps({"id": mem_id, "updated": True}))
+    try:
+        result = update_memory(mem_id=mem_id, content=content, tags=tags)
+        click.echo(json.dumps(result))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
 
 
 @cli.command()
 @click.argument("mem_id")
 def delete(mem_id):
     """Delete a memory."""
-    click.echo(json.dumps({"id": mem_id, "deleted": True}))
+    try:
+        result = delete_memory(mem_id=mem_id)
+        click.echo(json.dumps(result))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
 
 
 @cli.command()
 def stats():
     """Show memory system statistics."""
-    click.echo(
-        json.dumps(
-            {
-                "total_memories": 0,
-                "unprocessed_sessions": 0,
-                "by_project": {},
-                "by_importance": {},
-            }
-        )
-    )
+    try:
+        result = get_stats()
+        click.echo(json.dumps(result))
+    except Exception as e:
+        click.echo(json.dumps({"error": str(e)}))
 
 
 def main():
