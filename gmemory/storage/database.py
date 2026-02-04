@@ -2,12 +2,21 @@ import sqlite3
 import struct
 import json
 import time
+import logging
 from typing import List, Optional, Tuple, Any, Dict
 from pathlib import Path
+import uuid
 import sqlite_vec
 
 from gmemory.config import config
 from gmemory.models import Memory, ProcessedSession
+from gmemory.validation import validate_memory
+from gmemory.storage.migrations import apply_migrations, get_migration_status
+
+logger = logging.getLogger(__name__)
+
+# Schema version for migration tracking
+SCHEMA_VERSION = 3
 
 
 class MemoryDatabase:
@@ -15,19 +24,79 @@ class MemoryDatabase:
     SQLite-based storage for memories using sqlite-vec for vector search.
     """
 
-    def __init__(self):
+    def __init__(self, embedding_dimension: Optional[int] = None):
+        """Initialize database.
+
+        Args:
+            embedding_dimension: Override embedding dimension. If None, uses config value.
+                                 Pass embedder.dimension for consistency.
+        """
         self.db_path = config.db_path
+        self._embedding_dim = embedding_dimension or config.embedding_dimension
+        self._vec_loaded = False
+        self._vec_load_error: Optional[str] = None
         self._ensure_db_dir()
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
 
-        # Load sqlite-vec extension
-        self.conn.enable_load_extension(True)
-        sqlite_vec.load(self.conn)
-        self.conn.enable_load_extension(False)
+        # Load sqlite-vec extension with diagnostic logging
+        self._load_sqlite_vec()
 
         self._configure_pragma()
         self._init_tables()
+        self._run_migrations()
+        self._validate_vector_dimension()
+        self._log_diagnostics()
+
+    def _load_sqlite_vec(self) -> None:
+        """Load sqlite-vec extension with diagnostic logging."""
+        try:
+            self.conn.enable_load_extension(True)
+            sqlite_vec.load(self.conn)
+            self.conn.enable_load_extension(False)
+            self._vec_loaded = True
+            logger.debug("sqlite-vec extension loaded successfully")
+        except Exception as e:
+            self._vec_loaded = False
+            self._vec_load_error = str(e)
+            logger.error(
+                f"[GMEM-DB-201] Failed to load sqlite-vec extension: {e}. "
+                f"Vector search will be unavailable. "
+                f"Ensure sqlite-vec is installed: pip install sqlite-vec"
+            )
+
+    def _log_diagnostics(self) -> None:
+        """Log diagnostic information about database state."""
+        diag = self.get_diagnostics()
+
+        if not diag["vec_extension_loaded"]:
+            logger.warning(
+                f"[GMEM-DB-201] sqlite-vec not loaded: {diag['vec_load_error']}. "
+                f"Vector search disabled. Install with: pip install sqlite-vec"
+            )
+
+        if diag["vec_dimension_mismatch"]:
+            logger.warning(
+                f"[GMEM-DB-204] Vector dimension mismatch detected. "
+                f"Expected: {diag['expected_dimension']}, "
+                f"Run 'gmemory rebuild --target=embeddings' to fix."
+            )
+
+        if diag["pending_migrations"] > 0:
+            logger.info(
+                f"Database has {diag['pending_migrations']} pending migration(s). "
+                f"Current version: {diag['schema_version']}"
+            )
+
+    def _run_migrations(self) -> None:
+        """Run any pending database migrations."""
+        try:
+            applied = apply_migrations(self.conn)
+            if applied:
+                logger.info(f"Applied {len(applied)} migration(s): {applied}")
+        except Exception as e:
+            logger.error(f"Migration failed: {e}")
+            raise
 
     def _ensure_db_dir(self):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,13 +129,26 @@ class MemoryDatabase:
             """)
 
             # Vector table for semantic search
-            dim = config.embedding_dimension
+            dim = self._embedding_dim
             self.conn.execute(f"""
                 CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
                     memory_id TEXT PRIMARY KEY,
                     embedding float32[{dim}] distance_metric=cosine
                 );
             """)
+
+            # FTS5 full-text search index (content-based)
+            self.conn.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+                    memory_id,
+                    content,
+                    tags,
+                    tokenize='porter unicode61'
+                );
+            """)
+
+            # Sync existing memories to FTS if needed
+            self._sync_fts_index()
 
             # Processed sessions tracking
             self.conn.execute("""
@@ -78,12 +160,102 @@ class MemoryDatabase:
                 );
             """)
 
+    def _validate_vector_dimension(self):
+        """Validate that vector table dimension matches expected dimension.
+
+        Logs a warning if there's a mismatch, which can cause search failures.
+        """
+        try:
+            # Check if vec_memories has any data
+            cursor = self.conn.execute("SELECT COUNT(*) FROM vec_memories")
+            count = cursor.fetchone()[0]
+            if count == 0:
+                return  # Empty table, no validation needed
+
+            # Try to query with a test vector of expected dimension
+            test_vector = [0.0] * self._embedding_dim
+            test_blob = self._serialize_float32(test_vector)
+
+            # This will fail if dimensions don't match
+            self.conn.execute(
+                "SELECT memory_id FROM vec_memories WHERE embedding MATCH ? AND k = 1",
+                (test_blob,),
+            ).fetchone()
+
+        except sqlite3.OperationalError as e:
+            error_msg = str(e)
+            if "dimension" in error_msg.lower() or "vector" in error_msg.lower():
+                logger.warning(
+                    f"Vector dimension mismatch detected. Expected {self._embedding_dim} dims. "
+                    f"Existing vectors may have different dimensions. "
+                    f"Consider rebuilding vec_memories table or re-embedding all memories. "
+                    f"Error: {e}"
+                )
+            else:
+                logger.warning(f"Vector validation error: {e}")
+
+    def _sync_fts_index(self):
+        """Sync memories table to FTS5 index for full-text search.
+
+        Only inserts memories that are not already in the FTS index.
+        """
+        try:
+            # Count existing FTS entries
+            cursor = self.conn.execute("SELECT COUNT(*) FROM memories_fts")
+            fts_count = cursor.fetchone()[0]
+
+            cursor = self.conn.execute("SELECT COUNT(*) FROM memories")
+            mem_count = cursor.fetchone()[0]
+
+            if fts_count >= mem_count:
+                return  # FTS is up to date
+
+            # Insert missing entries
+            with self.conn:
+                self.conn.execute("""
+                    INSERT INTO memories_fts (memory_id, content, tags)
+                    SELECT id, content, tags FROM memories
+                    WHERE id NOT IN (SELECT memory_id FROM memories_fts)
+                """)
+                inserted = self.conn.total_changes
+                if inserted > 0:
+                    logger.info(f"Synced {inserted} memories to FTS index")
+
+        except sqlite3.OperationalError as e:
+            logger.warning(f"FTS sync error: {e}")
+
     def _serialize_float32(self, vector: List[float]) -> bytes:
         """Serialize a list of floats into a binary blob for sqlite-vec."""
         return struct.pack(f"{len(vector)}f", *vector)
 
-    def add_memory(self, memory: Memory, embedding: Optional[List[float]] = None):
-        """Add a memory and its embedding to the database."""
+    def add_memory(
+        self,
+        memory: Memory,
+        embedding: Optional[List[float]] = None,
+        validate: bool = True,
+    ):
+        """Add a memory and its embedding to the database.
+
+        Args:
+            memory: Memory object to add.
+            embedding: Optional embedding vector.
+            validate: If True, validate memory fields before insert.
+
+        Raises:
+            ValidationError: If validate=True and validation fails.
+        """
+        if validate:
+            validate_memory(
+                memory_id=memory.id,
+                content=memory.content,
+                tags=memory.tags,
+                importance=memory.importance,
+                memory_type=memory.memory_type,
+                created_at=memory.created_at,
+                updated_at=memory.updated_at,
+                strict=True,
+            )
+
         tags_json = json.dumps(memory.tags)
 
         with self.conn:
@@ -119,6 +291,18 @@ class MemoryDatabase:
                     (memory.id, embedding_blob),
                 )
 
+            # Update FTS index
+            self.conn.execute(
+                "DELETE FROM memories_fts WHERE memory_id = ?", (memory.id,)
+            )
+            self.conn.execute(
+                """
+                INSERT INTO memories_fts (memory_id, content, tags)
+                VALUES (?, ?, ?)
+            """,
+                (memory.id, memory.content, tags_json),
+            )
+
     def get_memory(self, memory_id: str) -> Optional[Memory]:
         """Retrieve a memory by ID."""
         cursor = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,))
@@ -127,8 +311,32 @@ class MemoryDatabase:
             return Memory.from_dict(dict(row))
         return None
 
-    def update_memory(self, memory: Memory, embedding: Optional[List[float]] = None):
-        """Update an existing memory."""
+    def update_memory(
+        self,
+        memory: Memory,
+        embedding: Optional[List[float]] = None,
+        validate: bool = True,
+    ):
+        """Update an existing memory.
+
+        Args:
+            memory: Memory object with updated fields.
+            embedding: Optional new embedding vector.
+            validate: If True, validate memory fields before update.
+
+        Raises:
+            ValidationError: If validate=True and validation fails.
+        """
+        if validate:
+            validate_memory(
+                memory_id=memory.id,
+                content=memory.content,
+                tags=memory.tags,
+                importance=memory.importance,
+                memory_type=memory.memory_type,
+                strict=True,
+            )
+
         tags_json = json.dumps(memory.tags)
 
         with self.conn:
@@ -163,6 +371,18 @@ class MemoryDatabase:
                     (embedding_blob, memory.id),
                 )
 
+            # Update FTS index
+            self.conn.execute(
+                "DELETE FROM memories_fts WHERE memory_id = ?", (memory.id,)
+            )
+            self.conn.execute(
+                """
+                INSERT INTO memories_fts (memory_id, content, tags)
+                VALUES (?, ?, ?)
+            """,
+                (memory.id, memory.content, tags_json),
+            )
+
     def delete_memory(self, memory_id: str):
         """Delete a memory."""
         with self.conn:
@@ -170,6 +390,84 @@ class MemoryDatabase:
             self.conn.execute(
                 "DELETE FROM vec_memories WHERE memory_id = ?", (memory_id,)
             )
+            self.conn.execute(
+                "DELETE FROM memories_fts WHERE memory_id = ?", (memory_id,)
+            )
+
+    def supersede_memory(
+        self,
+        old_memory_id: str,
+        new_memory: Memory,
+        embedding: Optional[List[float]] = None,
+    ) -> bool:
+        """Mark an old memory as superseded and add a new replacement memory.
+
+        This is the recommended way to update/replace memories while preserving
+        history. The old memory is marked with superseded_by pointing to the
+        new memory's ID, and the new memory is added.
+
+        Args:
+            old_memory_id: ID of the memory to supersede.
+            new_memory: The new memory that replaces the old one.
+            embedding: Optional embedding for the new memory.
+
+        Returns:
+            True if successful, False if old memory not found.
+        """
+        old_memory = self.get_memory(old_memory_id)
+        if not old_memory:
+            return False
+
+        with self.conn:
+            # Mark old memory as superseded
+            self.conn.execute(
+                "UPDATE memories SET superseded_by = ?, updated_at = ? WHERE id = ?",
+                (new_memory.id, int(time.time()), old_memory_id),
+            )
+
+            # Add the new memory
+            self.add_memory(new_memory, embedding, validate=True)
+
+        return True
+
+    def get_active_memories(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        project_path: Optional[str] = None,
+    ) -> List[Memory]:
+        """Get memories that have not been superseded.
+
+        Args:
+            limit: Maximum number of memories to return.
+            offset: Number of memories to skip (for pagination).
+            project_path: Optional filter by project path.
+
+        Returns:
+            List of active (non-superseded) memories.
+        """
+        if project_path:
+            cursor = self.conn.execute(
+                """
+                SELECT * FROM memories 
+                WHERE superseded_by IS NULL AND project_path = ?
+                ORDER BY updated_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (project_path, limit, offset),
+            )
+        else:
+            cursor = self.conn.execute(
+                """
+                SELECT * FROM memories 
+                WHERE superseded_by IS NULL
+                ORDER BY updated_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            )
+
+        return [Memory.from_dict(dict(row)) for row in cursor]
 
     def search_memories(
         self, query_embedding: List[float], limit: int = 10, threshold: float = 0.5
@@ -212,6 +510,123 @@ class MemoryDatabase:
 
         return results
 
+    def search_fts(self, query: str, limit: int = 50) -> List[Tuple[str, float]]:
+        """Full-text search using FTS5.
+
+        Args:
+            query: Search query (supports FTS5 syntax like AND, OR, NOT, "phrase").
+            limit: Maximum number of results.
+
+        Returns:
+            List of (memory_id, bm25_score) tuples, sorted by relevance.
+        """
+        try:
+            # Escape special FTS5 characters and build query
+            # For simple queries, wrap in quotes for phrase matching
+            safe_query = query.replace('"', '""')
+
+            cursor = self.conn.execute(
+                """
+                SELECT memory_id, bm25(memories_fts) as score
+                FROM memories_fts
+                WHERE memories_fts MATCH ?
+                ORDER BY score
+                LIMIT ?
+            """,
+                (f'"{safe_query}" OR {safe_query}', limit),
+            )
+
+            return [(row["memory_id"], row["score"]) for row in cursor]
+
+        except sqlite3.OperationalError as e:
+            logger.warning(f"FTS search error: {e}")
+            return []
+
+    def hybrid_search(
+        self,
+        query_embedding: List[float],
+        query_text: str,
+        limit: int = 10,
+        vector_weight: float = 0.7,
+        fts_weight: float = 0.3,
+        threshold: float = 0.3,
+    ) -> List[Tuple[Memory, float]]:
+        """Hybrid search combining vector similarity and full-text search.
+
+        Args:
+            query_embedding: Vector embedding of the query.
+            query_text: Original query text for FTS.
+            limit: Maximum number of results.
+            vector_weight: Weight for vector similarity score (0-1).
+            fts_weight: Weight for FTS score (0-1).
+            threshold: Minimum combined score threshold.
+
+        Returns:
+            List of (Memory, combined_score) tuples, sorted by relevance.
+        """
+        # Get vector search results (fetch more for merging)
+        fetch_limit = max(50, limit * 3)
+        vec_results = self.search_memories(
+            query_embedding, limit=fetch_limit, threshold=0.2
+        )
+
+        # Get FTS results
+        fts_results = self.search_fts(query_text, limit=fetch_limit)
+
+        # Build score maps
+        # Vector: convert distance to similarity (1 - distance)
+        vec_scores: Dict[str, float] = {}
+        vec_memories: Dict[str, Memory] = {}
+        for memory, distance in vec_results:
+            similarity = 1.0 - distance
+            vec_scores[memory.id] = similarity
+            vec_memories[memory.id] = memory
+
+        # FTS: normalize BM25 scores (they are negative, lower is better)
+        fts_scores: Dict[str, float] = {}
+        if fts_results:
+            # BM25 scores are negative, convert to 0-1 range
+            min_score = min(score for _, score in fts_results)
+            max_score = max(score for _, score in fts_results)
+            score_range = max_score - min_score if max_score != min_score else 1.0
+
+            for memory_id, score in fts_results:
+                # Normalize: lower BM25 = better, so invert
+                normalized = (
+                    1.0 - (score - min_score) / score_range if score_range else 1.0
+                )
+                fts_scores[memory_id] = normalized
+
+        # Combine scores using Reciprocal Rank Fusion (RRF) style merging
+        all_ids = set(vec_scores.keys()) | set(fts_scores.keys())
+        combined: List[Tuple[str, float]] = []
+
+        for memory_id in all_ids:
+            vec_score = vec_scores.get(memory_id, 0.0)
+            fts_score = fts_scores.get(memory_id, 0.0)
+
+            # Weighted combination
+            final_score = (vec_score * vector_weight) + (fts_score * fts_weight)
+
+            if final_score >= threshold:
+                combined.append((memory_id, final_score))
+
+        # Sort by combined score (descending)
+        combined.sort(key=lambda x: x[1], reverse=True)
+
+        # Fetch memories and return
+        results: List[Tuple[Memory, float]] = []
+        for memory_id, score in combined[:limit]:
+            if memory_id in vec_memories:
+                results.append((vec_memories[memory_id], score))
+            else:
+                # Fetch from DB if not in vector results
+                memory = self.get_memory(memory_id)
+                if memory:
+                    results.append((memory, score))
+
+        return results
+
     def add_processed_session(self, session: ProcessedSession):
         """Mark a session as processed."""
         with self.conn:
@@ -222,6 +637,182 @@ class MemoryDatabase:
             """,
                 (session.session_id, session.agent, session.processed_at),
             )
+
+    def start_scan_run(
+        self,
+        scanner: str,
+        agent: str,
+        base_dir: Optional[str],
+        incremental: bool,
+        limit_value: int,
+    ) -> str:
+        """Create a scan run record and return its ID."""
+        run_id = str(uuid.uuid4())
+        started_at = int(time.time())
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO scan_runs (
+                    id, scanner, agent, base_dir, incremental, limit_value, started_at,
+                    status, total_files, scanned_files, skipped_unchanged,
+                    unprocessed_sessions, error_count, limit_reached, note
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, NULL)
+            """,
+                (
+                    run_id,
+                    scanner,
+                    agent,
+                    base_dir,
+                    1 if incremental else 0,
+                    limit_value,
+                    started_at,
+                    "running",
+                ),
+            )
+        return run_id
+
+    def finalize_scan_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        total_files: int,
+        scanned_files: int,
+        skipped_unchanged: int,
+        unprocessed_sessions: int,
+        error_count: int,
+        limit_reached: bool,
+        note: Optional[str] = None,
+    ) -> None:
+        """Finalize a scan run with summary metrics."""
+        finished_at = int(time.time())
+        with self.conn:
+            self.conn.execute(
+                """
+                UPDATE scan_runs SET
+                    finished_at = ?,
+                    status = ?,
+                    total_files = ?,
+                    scanned_files = ?,
+                    skipped_unchanged = ?,
+                    unprocessed_sessions = ?,
+                    error_count = ?,
+                    limit_reached = ?,
+                    note = ?
+                WHERE id = ?
+            """,
+                (
+                    finished_at,
+                    status,
+                    total_files,
+                    scanned_files,
+                    skipped_unchanged,
+                    unprocessed_sessions,
+                    error_count,
+                    1 if limit_reached else 0,
+                    note,
+                    run_id,
+                ),
+            )
+
+    def add_scan_error(
+        self,
+        run_id: str,
+        file_path: Optional[str],
+        session_id: Optional[str],
+        error_code: Optional[str],
+        error_message: str,
+    ) -> None:
+        """Record a scan error for manual replay and diagnostics."""
+        occurred_at = int(time.time())
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO scan_errors (
+                    run_id, file_path, session_id, error_code, error_message, occurred_at,
+                    resolved, resolved_at, resolution_note
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL)
+            """,
+                (run_id, file_path, session_id, error_code, error_message, occurred_at),
+            )
+
+    def get_latest_scan_run(self, scanner: str, agent: str) -> Optional[Dict[str, Any]]:
+        """Fetch the latest scan run for a scanner/agent."""
+        cursor = self.conn.execute(
+            """
+            SELECT * FROM scan_runs
+            WHERE scanner = ? AND agent = ?
+            ORDER BY started_at DESC
+            LIMIT 1
+        """,
+            (scanner, agent),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def get_scan_errors(
+        self, *, limit: int = 50, unresolved_only: bool = True
+    ) -> List[Dict[str, Any]]:
+        """Get recent scan errors."""
+        if unresolved_only:
+            cursor = self.conn.execute(
+                """
+                SELECT * FROM scan_errors
+                WHERE resolved = 0
+                ORDER BY occurred_at DESC
+                LIMIT ?
+            """,
+                (limit,),
+            )
+        else:
+            cursor = self.conn.execute(
+                """
+                SELECT * FROM scan_errors
+                ORDER BY occurred_at DESC
+                LIMIT ?
+            """,
+                (limit,),
+            )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_scan_runs(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get recent scan run records."""
+        cursor = self.conn.execute(
+            """
+            SELECT * FROM scan_runs
+            ORDER BY started_at DESC
+            LIMIT ?
+        """,
+            (limit,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def resolve_scan_errors(
+        self, ids: List[int], note: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Mark scan errors as resolved with an optional note."""
+        resolved: List[int] = []
+        failed: List[int] = []
+        resolved_at = int(time.time())
+
+        with self.conn:
+            for error_id in ids:
+                cursor = self.conn.execute(
+                    """
+                    UPDATE scan_errors
+                    SET resolved = 1,
+                        resolved_at = ?,
+                        resolution_note = ?
+                    WHERE id = ?
+                """,
+                    (resolved_at, note, error_id),
+                )
+                if cursor.rowcount > 0:
+                    resolved.append(error_id)
+                else:
+                    failed.append(error_id)
+
+        return {"resolved": resolved, "failed": failed}
 
     def get_processed_session(
         self, session_id: str, agent: str
@@ -244,7 +835,92 @@ class MemoryDatabase:
         cursor = self.conn.execute("SELECT COUNT(*) FROM processed_sessions")
         session_count = cursor.fetchone()[0]
 
-        return {"memories": memory_count, "processed_sessions": session_count}
+        cursor = self.conn.execute("SELECT COUNT(*) FROM scan_runs")
+        scan_runs = cursor.fetchone()[0]
+
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM scan_errors WHERE resolved = 0"
+        )
+        scan_errors = cursor.fetchone()[0]
+
+        return {
+            "memories": memory_count,
+            "processed_sessions": session_count,
+            "scan_runs": scan_runs,
+            "scan_errors": scan_errors,
+        }
+
+    def get_diagnostics(self) -> Dict[str, Any]:
+        """Get diagnostic information about database state.
+
+        Returns:
+            Dict with diagnostic information including:
+            - vec_extension_loaded: Whether sqlite-vec loaded successfully
+            - vec_load_error: Error message if loading failed
+            - expected_dimension: Expected embedding dimension
+            - vec_dimension_mismatch: Whether there's a dimension mismatch
+            - schema_version: Current schema version
+            - pending_migrations: Number of pending migrations
+            - memory_count: Total memories in database
+            - vec_count: Memories with embeddings
+            - fts_count: Memories in FTS index
+            - scan_runs: Total scan runs recorded
+            - scan_errors: Unresolved scan errors
+        """
+        diag: Dict[str, Any] = {
+            "vec_extension_loaded": self._vec_loaded,
+            "vec_load_error": self._vec_load_error,
+            "expected_dimension": self._embedding_dim,
+            "vec_dimension_mismatch": False,
+            "schema_version": 0,
+            "pending_migrations": 0,
+            "memory_count": 0,
+            "vec_count": 0,
+            "fts_count": 0,
+            "scan_runs": 0,
+            "scan_errors": 0,
+        }
+
+        try:
+            # Get counts
+            cursor = self.conn.execute("SELECT COUNT(*) FROM memories")
+            diag["memory_count"] = cursor.fetchone()[0]
+
+            cursor = self.conn.execute("SELECT COUNT(*) FROM vec_memories")
+            diag["vec_count"] = cursor.fetchone()[0]
+
+            cursor = self.conn.execute("SELECT COUNT(*) FROM memories_fts")
+            diag["fts_count"] = cursor.fetchone()[0]
+
+            cursor = self.conn.execute("SELECT COUNT(*) FROM scan_runs")
+            diag["scan_runs"] = cursor.fetchone()[0]
+
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) FROM scan_errors WHERE resolved = 0"
+            )
+            diag["scan_errors"] = cursor.fetchone()[0]
+
+            # Get migration status
+            migration_status = get_migration_status(self.conn)
+            diag["schema_version"] = migration_status["current_version"]
+            diag["pending_migrations"] = migration_status["pending_count"]
+
+            # Check dimension mismatch if we have vectors
+            if diag["vec_count"] > 0 and self._vec_loaded:
+                try:
+                    test_vector = [0.0] * self._embedding_dim
+                    test_blob = self._serialize_float32(test_vector)
+                    self.conn.execute(
+                        "SELECT memory_id FROM vec_memories WHERE embedding MATCH ? AND k = 1",
+                        (test_blob,),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    diag["vec_dimension_mismatch"] = True
+
+        except sqlite3.OperationalError as e:
+            logger.debug(f"Diagnostics query error: {e}")
+
+        return diag
 
     def close(self):
         self.conn.close()

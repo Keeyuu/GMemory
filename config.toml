@@ -5,12 +5,22 @@
 db_path = "~/.gmemory/data.db"
 
 [embedding]
-# Provider for vector embeddings (currently only "ollama" supported)
-provider = "ollama"
-# Ollama model to use for embeddings
-model = "nomic-embed-text"
-# Dimension of the generated embeddings
+# Provider for vector embeddings: "fastembed" (recommended) or "noop"
+provider = "fastembed"
+
+# FastEmbed model to use for embeddings
+# Available models:
+#   - "bge-small"   (BAAI/bge-small-en-v1.5, 384 dims, ~67MB, fastest)
+#   - "bge-base"    (BAAI/bge-base-en-v1.5, 768 dims, ~130MB)
+#   - "all-minilm"  (sentence-transformers/all-MiniLM-L6-v2, 384 dims)
+#   - "nomic"       (nomic-ai/nomic-embed-text-v1.5, 768 dims, long context 8192 tokens)
+model = "nomic"
+
+# Dimension of the generated embeddings (must match model)
 dimension = 768
+
+# Directory to cache downloaded models (optional)
+cache_dir = "~/.gmemory/models"
 
 [scanner]
 # Agent type to scan (default: opencode)

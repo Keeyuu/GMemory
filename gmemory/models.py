@@ -64,6 +64,7 @@ class Memory:
     project_name: Optional[str] = None
     created_at: int = field(default_factory=lambda: int(time.time()))
     updated_at: int = field(default_factory=lambda: int(time.time()))
+    superseded_by: Optional[str] = None  # ID of memory that replaces this one
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -89,6 +90,7 @@ class Memory:
             project_name=data.get("project_name"),
             created_at=data.get("created_at", int(time.time())),
             updated_at=data.get("updated_at", int(time.time())),
+            superseded_by=data.get("superseded_by"),
         )
 
 

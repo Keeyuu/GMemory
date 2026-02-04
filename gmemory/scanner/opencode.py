@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from pathlib import Path
 from typing import List, Optional, Dict
@@ -7,21 +8,44 @@ from contextlib import closing
 from gmemory.config import config
 from gmemory.models import Session, Message
 from gmemory.storage.database import MemoryDatabase
+from gmemory.scanner.state import ScanStateManager
+from gmemory.scanner.base import Scanner, ScannerRegistry
+from gmemory.utils.privacy import strip_private_tags
+
+logger = logging.getLogger(__name__)
 
 
-class OpenCodeScanner:
+@ScannerRegistry.register
+class OpenCodeScanner(Scanner):
     """
     Scans OpenCode storage for sessions and messages.
+    Supports incremental scanning to skip unchanged files.
     """
 
-    def __init__(self, base_dir: Optional[Path] = None):
-        if base_dir:
-            self.base_dir = base_dir
-        else:
-            # Default to standard OpenCode data location
-            self.base_dir = Path.home() / ".local" / "share" / "opencode"
+    name = "opencode"
 
-        self.storage_dir = self.base_dir / "storage"
+    def __init__(
+        self,
+        base_dir: Optional[Path] = None,
+        incremental: bool = True,
+        agent: Optional[str] = None,
+    ):
+        """Initialize scanner.
+
+        Args:
+            base_dir: Base directory for OpenCode data. Defaults to standard location.
+            incremental: Enable incremental scanning (skip unchanged files).
+            agent: Agent identifier for filtering. Defaults to config.default_agent.
+        """
+        # Set default base_dir before calling super().__init__
+        if base_dir is None:
+            base_dir = Path.home() / ".local" / "share" / "opencode"
+
+        super().__init__(base_dir=base_dir, agent=agent, incremental=incremental)
+
+        # base_dir is guaranteed non-None at this point
+        self.storage_dir = base_dir / "storage"
+        self._state_manager = ScanStateManager() if incremental else None
 
     def get_unprocessed_sessions(self, limit: int = 10) -> List[Session]:
         """
@@ -34,14 +58,53 @@ class OpenCodeScanner:
             List of Session objects.
         """
         sessions: List[Session] = []
-        agent = config.default_agent
+        agent = self.agent
+        skipped_unchanged = 0
+        scanned_files = 0
+        error_count = 0
+        run_id: Optional[str] = None
 
         session_dir = self.storage_dir / "session"
         if not session_dir.exists():
+            with closing(MemoryDatabase()) as db:
+                run_id = db.start_scan_run(
+                    scanner=self.name,
+                    agent=agent,
+                    base_dir=str(self.base_dir) if self.base_dir else None,
+                    incremental=self.incremental,
+                    limit_value=limit,
+                )
+                db.finalize_scan_run(
+                    run_id=run_id,
+                    status="completed",
+                    total_files=0,
+                    scanned_files=0,
+                    skipped_unchanged=0,
+                    unprocessed_sessions=0,
+                    error_count=0,
+                    limit_reached=False,
+                    note="session directory not found",
+                )
             return []
+
+        # Load incremental state if enabled
+        state = self._state_manager.load() if self._state_manager else None
 
         # We need to check against the database to see if processed
         with closing(MemoryDatabase()) as db:
+            run_id = db.start_scan_run(
+                scanner=self.name,
+                agent=agent,
+                base_dir=str(self.base_dir) if self.base_dir else None,
+                incremental=self.incremental,
+                limit_value=limit,
+            )
+
+            total_files = 0
+            for project_path in session_dir.iterdir():
+                if project_path.is_dir():
+                    total_files += len(list(project_path.glob("ses_*.json")))
+
             # Walk through project directories
             for project_path in session_dir.iterdir():
                 if not project_path.is_dir():
@@ -50,9 +113,30 @@ class OpenCodeScanner:
                 # Walk through session files in project directory
                 for session_file in project_path.glob("ses_*.json"):
                     if len(sessions) >= limit:
+                        self._save_state()
+                        if skipped_unchanged > 0:
+                            logger.debug(f"Skipped {skipped_unchanged} unchanged files")
+                        db.finalize_scan_run(
+                            run_id=run_id,
+                            status="partial",
+                            total_files=total_files,
+                            scanned_files=scanned_files,
+                            skipped_unchanged=skipped_unchanged,
+                            unprocessed_sessions=len(sessions),
+                            error_count=error_count,
+                            limit_reached=True,
+                            note="limit reached",
+                        )
                         return sessions
 
                     try:
+                        # Incremental check: skip unchanged files
+                        if state and not state.is_file_changed(session_file):
+                            skipped_unchanged += 1
+                            continue
+
+                        scanned_files += 1
+
                         session_id = session_file.stem  # e.g., "ses_123"
                         # The file stem includes 'ses_', but the ID might be just the suffix depending on how it's stored.
                         # Looking at learnings: "storage/session/<projectID>/ses_<sessionID>.json"
@@ -67,10 +151,16 @@ class OpenCodeScanner:
 
                         actual_session_id = session_data.get("id")
                         if not actual_session_id:
+                            # Update state even for invalid files to skip next time
+                            if state:
+                                state.update_file_state(session_file, "")
                             continue
 
                         # Check if processed
                         if db.get_processed_session(actual_session_id, agent):
+                            # Already processed - update state and skip
+                            if state:
+                                state.update_file_state(session_file, actual_session_id)
                             continue
 
                         # It is unprocessed, let's load full session details
@@ -79,12 +169,54 @@ class OpenCodeScanner:
                         )
                         if full_session:
                             sessions.append(full_session)
+                            # Note: Don't update state here - only after successful processing
 
                     except (json.JSONDecodeError, OSError) as e:
-                        # Log error in a real app
+                        error_count += 1
+                        db.add_scan_error(
+                            run_id=run_id,
+                            file_path=str(session_file),
+                            session_id=None,
+                            error_code="GMEM-SCN-302",
+                            error_message=str(e),
+                        )
+                        logger.warning(
+                            f"Failed to read session file {session_file}: {e}"
+                        )
                         continue
 
+        self._save_state()
+        if skipped_unchanged > 0:
+            logger.debug(f"Skipped {skipped_unchanged} unchanged files")
+        if run_id:
+            with closing(MemoryDatabase()) as db:
+                db.finalize_scan_run(
+                    run_id=run_id,
+                    status="completed",
+                    total_files=total_files,
+                    scanned_files=scanned_files,
+                    skipped_unchanged=skipped_unchanged,
+                    unprocessed_sessions=len(sessions),
+                    error_count=error_count,
+                    limit_reached=False,
+                    note=None,
+                )
         return sessions
+
+    def mark_session_scanned(self, session_file: Path, session_id: str) -> None:
+        """Mark a session file as scanned (update incremental state).
+
+        Call this after successfully processing a session.
+        """
+        if self._state_manager:
+            state = self._state_manager.load()
+            state.update_file_state(session_file, session_id)
+            self._state_manager.save()
+
+    def _save_state(self) -> None:
+        """Save incremental state to disk."""
+        if self._state_manager:
+            self._state_manager.save()
 
     def _load_full_session(
         self, session_id: str, session_metadata: Dict
@@ -208,20 +340,33 @@ class OpenCodeScanner:
         return self._clean_text(full_text)
 
     def _clean_text(self, text: str) -> str:
-        """Removes non-ASCII characters."""
-        return text.encode("ascii", "ignore").decode("ascii")
+        """Clean text content, preserving Unicode (Chinese, etc.) and stripping private tags."""
+        if not text:
+            return ""
+
+        # First strip private content
+        cleaned, stripped_count = strip_private_tags(text)
+        if stripped_count > 0:
+            logger.debug(f"Stripped {stripped_count} private tag(s) from content")
+
+        # Handle None case (shouldn't happen with non-empty input, but be safe)
+        if cleaned is None:
+            cleaned = ""
+
+        # Only remove control characters, keep all printable Unicode
+        import unicodedata
+
+        return "".join(
+            char
+            for char in cleaned
+            if not unicodedata.category(char).startswith("C") or char in "\n\t"
+        )
 
     def _create_session_obj(self, metadata: Dict, messages: List[Message]) -> Session:
         """Helper to create Session object from metadata and messages."""
         return Session(
             session_id=metadata.get("id", ""),
-            agent=config.default_agent,  # Scanner tracks it as 'opencode' usually, or the agent that created it?
-            # The 'agent' field in Session model is 'agent who created the session'.
-            # Metadata has 'agent' field usually? No, messages have agent.
-            # Session metadata has 'projectID'.
-            # Let's use config.default_agent as the scanner's perspective or 'opencode'.
-            # Actually Session model: "Represents a conversation session from an agent."
-            # If OpenCode created it, it's OpenCode.
+            agent=self.agent,  # Use scanner's agent setting
             project_path=metadata.get(
                 "directory", ""
             ),  # 'directory' field in session json
@@ -229,3 +374,43 @@ class OpenCodeScanner:
             started_at=str(metadata.get("time", {}).get("created", "")),
             messages=messages,
         )
+
+    def get_scan_stats(self) -> Dict[str, int]:
+        """Get statistics about scan state.
+
+        Returns:
+            Dict with keys: total_files, tracked_files
+        """
+        session_dir = self.storage_dir / "session"
+        total_files = 0
+
+        if session_dir.exists():
+            for project_path in session_dir.iterdir():
+                if project_path.is_dir():
+                    total_files += len(list(project_path.glob("ses_*.json")))
+
+        tracked_files = 0
+        if self._state_manager:
+            state = self._state_manager.load()
+            tracked_files = len(state.files)
+
+        return {
+            "total_session_files": total_files,
+            "tracked_files": tracked_files,
+        }
+
+    def count_sessions(self) -> int:
+        """Count total number of session files (lightweight, no content loading).
+
+        Returns:
+            Total session count.
+        """
+        session_dir = self.storage_dir / "session"
+        total = 0
+
+        if session_dir.exists():
+            for project_path in session_dir.iterdir():
+                if project_path.is_dir():
+                    total += len(list(project_path.glob("ses_*.json")))
+
+        return total

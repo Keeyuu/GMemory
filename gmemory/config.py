@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -9,6 +10,8 @@ except ImportError:
         import tomli as tomllib
     except ImportError:
         tomllib = None
+
+logger = logging.getLogger(__name__)
 
 
 class Config:
@@ -23,9 +26,10 @@ class Config:
                 "db_path": "~/.gmemory/data.db",
             },
             "embedding": {
-                "provider": "ollama",
-                "model": "nomic-embed-text",
+                "provider": "fastembed",
+                "model": "nomic",
                 "dimension": 768,
+                "cache_dir": "~/.gmemory/models",
             },
             "scanner": {
                 "default_agent": "opencode",
@@ -47,16 +51,16 @@ class Config:
 
     def _update_from_file(self, path: Path) -> None:
         if tomllib is None:
-            # If toml parser is not available, we can't load the file
+            logger.debug("TOML parser not available, skipping config file")
             return
 
         try:
             with open(path, "rb") as f:
                 data = tomllib.load(f)
                 self._deep_update(self._config, data)
-        except Exception:
-            # Fail silently or log if we had a logger
-            pass
+                logger.debug(f"Loaded config from {path}")
+        except Exception as e:
+            logger.warning(f"Failed to load config from {path}: {e}")
 
     def _deep_update(self, base: Dict[str, Any], update: Dict[str, Any]) -> None:
         for key, value in update.items():
@@ -92,6 +96,13 @@ class Config:
     @property
     def embedding_dimension(self) -> int:
         return int(self.get("embedding.dimension"))
+
+    @property
+    def embedding_cache_dir(self) -> Optional[str]:
+        cache_dir = self.get("embedding.cache_dir")
+        if cache_dir:
+            return os.path.expanduser(cache_dir)
+        return None
 
     @property
     def default_agent(self) -> str:

@@ -1,12 +1,12 @@
 ---
 name: gmemory-refine
-description: Use when refining OpenCode sessions into memories, needing fetch/save/mark loop, or when asked to distill sessions, summarize logs, or process unprocessed sessions for gmemory.
+description: Use when refining Agent history sessions into memories, needing fetch/save/mark loop, or when asked to distill sessions, summarize logs, or process unprocessed sessions for gmemory.
 ---
 
 # GMemory Refine
 
 ## 目标
-将 OpenCode 会话提炼为可复用记忆，由 Agent 负责分析与取舍，脚本只做 I/O。
+将 Agent 历史会话提炼为可复用记忆，由 Agent 负责分析与取舍，脚本只做 I/O。
 
 ## 触发短语
 - "refine session"
@@ -29,8 +29,10 @@ python -m gmemory fetch --limit 5 --agent opencode
 
 # save (保存后自动标记)
 python -m gmemory save --session-id "ses_abc123" --content "技术要点" --tags "auth,jwt" --importance "high" --type "solution"
+# 修改记忆
+python -m gmemory update "mem_id" [--content "new"] [--tags "new,tags"]
 
-# mark (仅标记，不保存)
+# mark (仅标记，不保存, 无有价值信息)
 python -m gmemory mark --session-id "ses_abc123"
 ```
 

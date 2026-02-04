@@ -1,7 +1,8 @@
 import time
 from typing import List, Optional, Dict, Any, Union
 from gmemory.storage.database import MemoryDatabase
-from gmemory.storage.embedder import get_embedder, NoOpEmbedder
+from gmemory.storage.embedder import get_embedder, NoOpEmbedder, is_valid_embedding
+from gmemory.config import config
 
 
 def update_memory(
@@ -12,6 +13,7 @@ def update_memory(
     memory_type: Optional[str] = None,
     project_path: Optional[str] = None,
     project_name: Optional[str] = None,
+    require_embedding: bool = True,
 ) -> Dict[str, Any]:
     """
     Update an existing memory in the database.
@@ -24,6 +26,7 @@ def update_memory(
         memory_type: Type of memory (observation, fact, pattern).
         project_path: Path to the project.
         project_name: Name of the project.
+        require_embedding: If True and content changed, fail when embedding unavailable.
 
     Returns:
         Dict containing:
@@ -65,28 +68,41 @@ def update_memory(
 
         # Regenerate embedding if content changed
         embedding = None
-        warning_msg = None
+        embedding_stored = False
+        error_msg = None
 
         if content is not None:
             try:
                 embedder = get_embedder()
                 if isinstance(embedder, NoOpEmbedder):
-                    warning_msg = "Embedding service unavailable"
+                    error_msg = "Embedding service unavailable"
                 else:
                     embedding = embedder.embed(content)
+                    if is_valid_embedding(embedding, config.embedding_dimension):
+                        embedding_stored = True
+                    else:
+                        error_msg = f"Invalid embedding dimension (expected {config.embedding_dimension})"
+                        embedding = None
             except Exception as e:
-                warning_msg = f"Embedding failed: {str(e)}"
+                error_msg = f"Embedding failed: {str(e)}"
+
+            # Block update if embedding required but unavailable
+            if require_embedding and not embedding_stored:
+                return {
+                    "id": mem_id,
+                    "updated": False,
+                    "error": error_msg or "Embedding required but not available",
+                }
 
         # Save updates
-        # Note: MemoryDatabase.update_memory handles updating the updated_at timestamp
-        db.update_memory(memory, embedding)
+        db.update_memory(memory, embedding if embedding_stored else None)
 
         result = {
             "id": mem_id,
             "updated": True,
         }
-        if warning_msg:
-            result["warning"] = warning_msg
+        if error_msg and not require_embedding:
+            result["warning"] = error_msg
 
         return result
 
