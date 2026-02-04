@@ -16,7 +16,7 @@ from gmemory.storage.migrations import apply_migrations, get_migration_status
 logger = logging.getLogger(__name__)
 
 # Schema version for migration tracking
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class MemoryDatabase:
@@ -228,17 +228,75 @@ class MemoryDatabase:
         """Serialize a list of floats into a binary blob for sqlite-vec."""
         return struct.pack(f"{len(vector)}f", *vector)
 
+    def _store_tag_embedding(self, memory_id: str, tag_embedding: List[float]) -> None:
+        """Store tag embedding in the vec_tags table (dual index).
+
+        Args:
+            memory_id: The memory ID to associate with.
+            tag_embedding: The embedding vector for the memory's tags.
+        """
+        try:
+            embedding_blob = self._serialize_float32(tag_embedding)
+            self.conn.execute(
+                """
+                INSERT OR REPLACE INTO vec_tags (memory_id, embedding)
+                VALUES (?, ?)
+                """,
+                (memory_id, embedding_blob),
+            )
+        except sqlite3.OperationalError as e:
+            # vec_tags table may not exist if migration hasn't run
+            logger.debug(f"Could not store tag embedding: {e}")
+
+    def _has_tag_index(self) -> bool:
+        """Check if the vec_tags table exists and has data."""
+        try:
+            cursor = self.conn.execute("SELECT COUNT(*) FROM vec_tags")
+            return cursor.fetchone()[0] > 0
+        except sqlite3.OperationalError:
+            return False
+
+    def search_tags(
+        self, tag_embedding: List[float], limit: int = 50
+    ) -> List[Tuple[str, float]]:
+        """Search for memories by tag similarity.
+
+        Args:
+            tag_embedding: Embedding vector for the query tags.
+            limit: Maximum number of results.
+
+        Returns:
+            List of (memory_id, distance) tuples.
+        """
+        try:
+            embedding_blob = self._serialize_float32(tag_embedding)
+            cursor = self.conn.execute(
+                """
+                SELECT memory_id, distance
+                FROM vec_tags
+                WHERE embedding MATCH ? AND k = ?
+                ORDER BY distance
+                """,
+                (embedding_blob, limit),
+            )
+            return [(row[0], row[1]) for row in cursor]
+        except sqlite3.OperationalError as e:
+            logger.debug(f"Tag search unavailable: {e}")
+            return []
+
     def add_memory(
         self,
         memory: Memory,
         embedding: Optional[List[float]] = None,
+        tag_embedding: Optional[List[float]] = None,
         validate: bool = True,
     ):
         """Add a memory and its embedding to the database.
 
         Args:
             memory: Memory object to add.
-            embedding: Optional embedding vector.
+            embedding: Optional content embedding vector.
+            tag_embedding: Optional tag embedding vector (for dual index).
             validate: If True, validate memory fields before insert.
 
         Raises:
@@ -291,6 +349,10 @@ class MemoryDatabase:
                     (memory.id, embedding_blob),
                 )
 
+            # Store tag embedding if provided (dual index)
+            if tag_embedding:
+                self._store_tag_embedding(memory.id, tag_embedding)
+
             # Update FTS index
             self.conn.execute(
                 "DELETE FROM memories_fts WHERE memory_id = ?", (memory.id,)
@@ -315,13 +377,15 @@ class MemoryDatabase:
         self,
         memory: Memory,
         embedding: Optional[List[float]] = None,
+        tag_embedding: Optional[List[float]] = None,
         validate: bool = True,
     ):
         """Update an existing memory.
 
         Args:
             memory: Memory object with updated fields.
-            embedding: Optional new embedding vector.
+            embedding: Optional new content embedding vector.
+            tag_embedding: Optional new tag embedding vector (for dual index).
             validate: If True, validate memory fields before update.
 
         Raises:
@@ -371,6 +435,10 @@ class MemoryDatabase:
                     (embedding_blob, memory.id),
                 )
 
+            # Update tag embedding if provided (dual index)
+            if tag_embedding:
+                self._store_tag_embedding(memory.id, tag_embedding)
+
             # Update FTS index
             self.conn.execute(
                 "DELETE FROM memories_fts WHERE memory_id = ?", (memory.id,)
@@ -393,6 +461,13 @@ class MemoryDatabase:
             self.conn.execute(
                 "DELETE FROM memories_fts WHERE memory_id = ?", (memory_id,)
             )
+            # Also delete from tag index if it exists
+            try:
+                self.conn.execute(
+                    "DELETE FROM vec_tags WHERE memory_id = ?", (memory_id,)
+                )
+            except sqlite3.OperationalError:
+                pass  # vec_tags table may not exist
 
     def supersede_memory(
         self,
@@ -863,6 +938,7 @@ class MemoryDatabase:
             - pending_migrations: Number of pending migrations
             - memory_count: Total memories in database
             - vec_count: Memories with embeddings
+            - vec_tags_count: Memories with tag embeddings (dual index)
             - fts_count: Memories in FTS index
             - scan_runs: Total scan runs recorded
             - scan_errors: Unresolved scan errors
@@ -876,6 +952,7 @@ class MemoryDatabase:
             "pending_migrations": 0,
             "memory_count": 0,
             "vec_count": 0,
+            "vec_tags_count": 0,
             "fts_count": 0,
             "scan_runs": 0,
             "scan_errors": 0,
@@ -888,6 +965,13 @@ class MemoryDatabase:
 
             cursor = self.conn.execute("SELECT COUNT(*) FROM vec_memories")
             diag["vec_count"] = cursor.fetchone()[0]
+
+            # Get tag index count (may not exist)
+            try:
+                cursor = self.conn.execute("SELECT COUNT(*) FROM vec_tags")
+                diag["vec_tags_count"] = cursor.fetchone()[0]
+            except sqlite3.OperationalError:
+                diag["vec_tags_count"] = 0
 
             cursor = self.conn.execute("SELECT COUNT(*) FROM memories_fts")
             diag["fts_count"] = cursor.fetchone()[0]

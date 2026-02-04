@@ -1,6 +1,7 @@
 """Workflow command for GMemory - single command automation loop."""
 
 import json
+import time
 from typing import Any, Dict, List, Optional
 
 from gmemory.commands.fetch import fetch_unprocessed_sessions
@@ -12,6 +13,7 @@ def process_sessions(
     limit: int = 5,
     agent: str = "opencode",
     auto_mark: bool = False,
+    show_backlog: bool = True,
 ) -> Dict[str, Any]:
     """Fetch unprocessed sessions and return them for processing.
 
@@ -25,11 +27,14 @@ def process_sessions(
         agent: Agent type to fetch sessions for.
         auto_mark: If True, automatically mark sessions as processed
                    even if no memory is saved (for skipping sessions).
+        show_backlog: If True, include backlog statistics in response.
 
     Returns:
         Dict with:
         - sessions: List of session data
         - total: Number of sessions returned
+        - backlog: Backlog statistics (if show_backlog=True)
+        - workflow: Suggested workflow commands
         - hint: Usage hint for next steps
     """
     result = fetch_unprocessed_sessions(limit=limit, agent=agent)
@@ -38,15 +43,192 @@ def process_sessions(
         return result
 
     sessions = result.get("sessions", [])
+    has_more = result.get("has_more", False)
 
-    return {
+    response: Dict[str, Any] = {
         "sessions": sessions,
         "total": len(sessions),
-        "hint": (
-            "Review sessions and call 'gmemory save --session-id=<id> --content=<distilled>' "
-            "for each valuable session, or 'gmemory mark --session-id=<id>' to skip."
-        ),
     }
+
+    # Add backlog statistics
+    if show_backlog:
+        backlog_info = _get_backlog_stats(agent, len(sessions), has_more, limit)
+        response["backlog"] = backlog_info
+
+    # Generate workflow suggestions based on session count
+    workflow = _generate_workflow_suggestions(sessions, agent)
+    response["workflow"] = workflow
+
+    # Contextual hint based on situation
+    if len(sessions) == 0:
+        response["hint"] = "No unprocessed sessions. Memory system is up to date."
+        response["status"] = "up_to_date"
+    elif len(sessions) == 1:
+        session = sessions[0]
+        session_id = session.get("session_id", "")
+        response["hint"] = (
+            f"1 session to review. Use:\n"
+            f'  gmemory save --session-id={session_id} --content="<distilled>" --tags="<tags>"\n'
+            f"  or: gmemory mark --session-id={session_id}  (to skip)"
+        )
+        response["status"] = "pending"
+    else:
+        response["hint"] = (
+            f"{len(sessions)} sessions to review. Options:\n"
+            f"  1. Process individually: gmemory save --session-id=<id> --content=<distilled>\n"
+            f"  2. Batch process: Use save_batch() programmatically\n"
+            f"  3. Skip all: gmemory mark-all --agent={agent} --limit={len(sessions)}"
+        )
+        response["status"] = "pending"
+        if has_more:
+            response["hint"] += (
+                f"\n  Note: More sessions available beyond limit={limit}"
+            )
+
+    return response
+
+
+def _get_backlog_stats(
+    agent: str, fetched: int, has_more: bool, limit: int
+) -> Dict[str, Any]:
+    """Get backlog statistics for workflow visibility.
+
+    Args:
+        agent: Agent type.
+        fetched: Number of sessions fetched.
+        has_more: Whether more sessions are available.
+        limit: Fetch limit used.
+
+    Returns:
+        Dict with backlog statistics.
+    """
+    from gmemory.storage.database import MemoryDatabase
+
+    stats: Dict[str, Any] = {
+        "fetched": fetched,
+        "has_more": has_more,
+        "limit_used": limit,
+    }
+
+    try:
+        db = MemoryDatabase()
+        try:
+            # Get total processed sessions count
+            cursor = db.conn.execute(
+                "SELECT COUNT(*) FROM processed_sessions WHERE agent = ?",
+                (agent,),
+            )
+            stats["total_processed"] = cursor.fetchone()[0]
+
+            # Get scan error count
+            cursor = db.conn.execute(
+                "SELECT COUNT(*) FROM scan_errors WHERE resolved = 0"
+            )
+            stats["unresolved_errors"] = cursor.fetchone()[0]
+
+            # Estimate backlog size if has_more
+            if has_more:
+                # Fetch a larger sample to estimate
+                larger_result = fetch_unprocessed_sessions(limit=100, agent=agent)
+                larger_sessions = larger_result.get("sessions", [])
+                if len(larger_sessions) >= 100:
+                    stats["estimated_backlog"] = "100+"
+                    stats["backlog_warning"] = (
+                        "Large backlog detected. Consider batch processing or "
+                        "increasing limit with: gmemory process --limit=50"
+                    )
+                else:
+                    stats["estimated_backlog"] = len(larger_sessions)
+            else:
+                stats["estimated_backlog"] = fetched
+
+        finally:
+            db.close()
+    except Exception:
+        pass  # Non-critical, continue without stats
+
+    return stats
+
+
+def _generate_workflow_suggestions(
+    sessions: List[Dict[str, Any]], agent: str
+) -> Dict[str, Any]:
+    """Generate contextual workflow command suggestions.
+
+    Args:
+        sessions: List of fetched sessions.
+        agent: Agent type.
+
+    Returns:
+        Dict with suggested commands.
+    """
+    suggestions: Dict[str, Any] = {
+        "commands": [],
+    }
+
+    if not sessions:
+        suggestions["next_action"] = "none"
+        suggestions["commands"] = [
+            {
+                "action": "search",
+                "command": 'gmemory q "<query>"',
+                "description": "Search existing memories",
+            },
+            {
+                "action": "recent",
+                "command": "gmemory recent",
+                "description": "View recent memories",
+            },
+        ]
+        return suggestions
+
+    # Single session - provide specific commands
+    if len(sessions) == 1:
+        session = sessions[0]
+        session_id = session.get("session_id", "")
+        suggestions["next_action"] = "review_single"
+        suggestions["commands"] = [
+            {
+                "action": "save",
+                "command": f'gmemory save --session-id={session_id} --content="<distilled>" --tags="<tags>"',
+                "description": "Save distilled memory from this session",
+            },
+            {
+                "action": "skip",
+                "command": f"gmemory mark --session-id={session_id}",
+                "description": "Mark as processed without saving",
+            },
+            {
+                "action": "detail",
+                "command": f"gmemory session-detail {session_id}",
+                "description": "View full session details",
+            },
+        ]
+        return suggestions
+
+    # Multiple sessions - provide batch options
+    session_ids = [s.get("session_id", "") for s in sessions[:5]]
+    suggestions["next_action"] = "review_batch"
+    suggestions["session_ids"] = session_ids
+    suggestions["commands"] = [
+        {
+            "action": "save_first",
+            "command": f'gmemory save --session-id={session_ids[0]} --content="<distilled>" --tags="<tags>"',
+            "description": "Save first session",
+        },
+        {
+            "action": "mark_all",
+            "command": f"gmemory mark-all --agent={agent} --limit={len(sessions)}",
+            "description": "Mark all as processed (skip)",
+        },
+        {
+            "action": "export_review",
+            "command": f"gmemory session-export {session_ids[0]}",
+            "description": "Export session for offline review",
+        },
+    ]
+
+    return suggestions
 
 
 def save_batch(
@@ -180,3 +362,275 @@ def skip_session(session_id: str) -> Dict[str, Any]:
         Result dict from mark_session.
     """
     return mark_session(session_id=session_id)
+
+
+def mark_all_sessions(
+    agent: str = "opencode",
+    limit: int = 10,
+    dry_run: bool = True,
+) -> Dict[str, Any]:
+    """Mark multiple unprocessed sessions as processed (batch skip).
+
+    Use this to quickly clear a backlog of sessions that don't need
+    memory extraction.
+
+    Args:
+        agent: Agent type to mark sessions for.
+        limit: Maximum number of sessions to mark.
+        dry_run: If True, preview what would be marked without applying.
+
+    Returns:
+        Dict with:
+        - marked: List of marked session IDs (or would-be marked if dry_run)
+        - failed: List of failed marks with errors
+        - dry_run: Whether this was a dry run
+        - summary: Human-readable summary
+    """
+    # Fetch unprocessed sessions
+    result = fetch_unprocessed_sessions(limit=limit, agent=agent)
+
+    if "error" in result:
+        return result
+
+    sessions = result.get("sessions", [])
+
+    if not sessions:
+        return {
+            "marked": [],
+            "failed": [],
+            "dry_run": dry_run,
+            "summary": "No unprocessed sessions to mark.",
+        }
+
+    session_ids = [s.get("session_id", "") for s in sessions if s.get("session_id")]
+
+    if dry_run:
+        return {
+            "marked": session_ids,
+            "failed": [],
+            "dry_run": True,
+            "summary": f"Would mark {len(session_ids)} session(s) as processed.",
+            "hint": "Use --apply to actually mark these sessions.",
+        }
+
+    # Actually mark sessions
+    marked = []
+    failed = []
+
+    for session_id in session_ids:
+        try:
+            mark_session(session_id=session_id)
+            marked.append(session_id)
+        except Exception as e:
+            failed.append({"session_id": session_id, "error": str(e)})
+
+    return {
+        "marked": marked,
+        "failed": failed,
+        "dry_run": False,
+        "summary": f"Marked {len(marked)} session(s), {len(failed)} failed.",
+    }
+
+
+def get_scan_error_summary() -> Dict[str, Any]:
+    """Get a summary of scan errors with suggested actions.
+
+    Provides visibility into scan errors and actionable recommendations
+    for resolving them.
+
+    Returns:
+        Dict with:
+        - total_errors: Total unresolved errors
+        - by_error_code: Breakdown by error code
+        - by_file: Breakdown by file path
+        - recent_errors: Most recent errors with details
+        - suggestions: Recommended actions
+    """
+    from gmemory.storage.database import MemoryDatabase
+
+    db = MemoryDatabase()
+    try:
+        # Get all unresolved errors
+        errors = db.get_scan_errors(limit=100, unresolved_only=True)
+
+        if not errors:
+            return {
+                "total_errors": 0,
+                "status": "healthy",
+                "message": "No unresolved scan errors.",
+            }
+
+        # Group by error code
+        by_code: Dict[str, List[Dict[str, Any]]] = {}
+        for err in errors:
+            code = err.get("error_code") or "UNKNOWN"
+            if code not in by_code:
+                by_code[code] = []
+            by_code[code].append(err)
+
+        # Group by file path
+        by_file: Dict[str, int] = {}
+        for err in errors:
+            file_path = err.get("file_path") or "unknown"
+            # Truncate long paths
+            if len(file_path) > 50:
+                file_path = "..." + file_path[-47:]
+            by_file[file_path] = by_file.get(file_path, 0) + 1
+
+        # Generate suggestions based on error patterns
+        suggestions = _generate_error_suggestions(by_code, errors)
+
+        # Get recent errors with details
+        recent = errors[:5]
+        recent_formatted = [
+            {
+                "id": e.get("id"),
+                "error_code": e.get("error_code"),
+                "message": (e.get("error_message", "")[:100] + "...")
+                if len(e.get("error_message", "")) > 100
+                else e.get("error_message", ""),
+                "file": e.get("file_path", "")[-50:] if e.get("file_path") else None,
+                "session_id": e.get("session_id"),
+            }
+            for e in recent
+        ]
+
+        return {
+            "total_errors": len(errors),
+            "status": "needs_attention" if len(errors) > 10 else "minor_issues",
+            "by_error_code": {code: len(errs) for code, errs in by_code.items()},
+            "by_file": dict(
+                sorted(by_file.items(), key=lambda x: x[1], reverse=True)[:10]
+            ),
+            "recent_errors": recent_formatted,
+            "suggestions": suggestions,
+        }
+
+    finally:
+        db.close()
+
+
+def _generate_error_suggestions(
+    by_code: Dict[str, List[Dict[str, Any]]], all_errors: List[Dict[str, Any]]
+) -> List[Dict[str, str]]:
+    """Generate actionable suggestions based on error patterns.
+
+    Args:
+        by_code: Errors grouped by error code.
+        all_errors: All error records.
+
+    Returns:
+        List of suggestion dicts with action and command.
+    """
+    suggestions = []
+
+    # Check for common error patterns
+    if "GMEM-SCAN-101" in by_code or "JSON" in str(by_code).upper():
+        suggestions.append(
+            {
+                "issue": "JSON parsing errors",
+                "action": "Some session files may be corrupted or incomplete",
+                "command": "gmemory scan-errors --limit=10  # Review specific files",
+            }
+        )
+
+    if "GMEM-SCAN-102" in by_code or "PERMISSION" in str(by_code).upper():
+        suggestions.append(
+            {
+                "issue": "Permission errors",
+                "action": "Check file permissions on session log directory",
+                "command": "ls -la ~/.local/share/opencode/storage/",
+            }
+        )
+
+    if len(all_errors) > 20:
+        suggestions.append(
+            {
+                "issue": "Large number of errors",
+                "action": "Consider bulk resolution after review",
+                "command": f"gmemory scan-errors-resolve {' '.join(str(e['id']) for e in all_errors[:10])} --note='Bulk resolved'",
+            }
+        )
+
+    # Always suggest review command
+    if all_errors:
+        error_ids = [str(e.get("id")) for e in all_errors[:5] if e.get("id")]
+        suggestions.append(
+            {
+                "issue": "Unresolved errors need attention",
+                "action": "Review and resolve errors to prevent re-processing attempts",
+                "command": f"gmemory scan-errors-resolve {' '.join(error_ids)} --note='Reviewed and resolved'",
+            }
+        )
+
+    if not suggestions:
+        suggestions.append(
+            {
+                "issue": "Minor errors detected",
+                "action": "Review errors and resolve as needed",
+                "command": "gmemory scan-errors",
+            }
+        )
+
+    return suggestions
+
+
+def batch_resolve_errors(
+    error_ids: Optional[List[int]] = None,
+    resolve_all: bool = False,
+    note: Optional[str] = None,
+    dry_run: bool = True,
+) -> Dict[str, Any]:
+    """Batch resolve scan errors.
+
+    Args:
+        error_ids: Specific error IDs to resolve. If None and resolve_all=True,
+                   resolves all unresolved errors.
+        resolve_all: If True and error_ids is None, resolve all errors.
+        note: Resolution note to attach.
+        dry_run: If True, preview what would be resolved.
+
+    Returns:
+        Dict with resolution results.
+    """
+    from gmemory.storage.database import MemoryDatabase
+
+    db = MemoryDatabase()
+    try:
+        if error_ids:
+            ids_to_resolve = error_ids
+        elif resolve_all:
+            errors = db.get_scan_errors(limit=1000, unresolved_only=True)
+            ids_to_resolve = [e["id"] for e in errors if e.get("id")]
+        else:
+            return {
+                "error": "Must specify error_ids or use resolve_all=True",
+            }
+
+        if not ids_to_resolve:
+            return {
+                "resolved": [],
+                "failed": [],
+                "dry_run": dry_run,
+                "summary": "No errors to resolve.",
+            }
+
+        if dry_run:
+            return {
+                "would_resolve": ids_to_resolve,
+                "count": len(ids_to_resolve),
+                "dry_run": True,
+                "summary": f"Would resolve {len(ids_to_resolve)} error(s).",
+                "hint": "Use --apply to actually resolve these errors.",
+            }
+
+        result = db.resolve_scan_errors(ids_to_resolve, note=note)
+        return {
+            "resolved": result.get("resolved", []),
+            "failed": result.get("failed", []),
+            "dry_run": False,
+            "summary": f"Resolved {len(result.get('resolved', []))} error(s), {len(result.get('failed', []))} failed.",
+        }
+
+    finally:
+        db.close()

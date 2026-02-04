@@ -236,3 +236,24 @@ def migrate_v3(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_scan_errors_resolved ON scan_errors(resolved)"
     )
+
+
+@migration(4, "Add optional dual vector index for tags")
+def migrate_v4(conn: sqlite3.Connection) -> None:
+    """Add separate vector index for tags to improve tag-based semantic search.
+
+    This is an optional feature - the vec_tags table stores embeddings of
+    concatenated tags, enabling semantic tag matching alongside content matching.
+    When enabled, search can combine content similarity and tag similarity
+    with configurable weights.
+    """
+    from gmemory.config import config
+
+    dim = config.embedding_dimension
+
+    conn.execute(f"""
+        CREATE VIRTUAL TABLE IF NOT EXISTS vec_tags USING vec0(
+            memory_id TEXT PRIMARY KEY,
+            embedding float32[{dim}] distance_metric=cosine
+        )
+    """)

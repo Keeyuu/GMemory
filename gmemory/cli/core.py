@@ -1,0 +1,217 @@
+"""Core CLI commands for GMemory.
+
+Basic CRUD operations: fetch, save, mark, search, get, list, add, update, delete, stats.
+"""
+
+import click
+import json
+
+from gmemory.config import config
+from gmemory.commands.fetch import fetch_unprocessed_sessions
+from gmemory.commands.save import save_memory
+from gmemory.commands.mark import mark_session
+from gmemory.commands.search import search_memories
+from gmemory.commands.get import get_memories
+from gmemory.commands.list import list_memories
+from gmemory.commands.add import add_memory
+from gmemory.commands.update import update_memory
+from gmemory.commands.delete import delete_memory
+from gmemory.commands.stats import get_stats
+from gmemory.commands.profiles import get_profile_names
+
+
+def register_core_commands(cli: click.Group) -> None:
+    """Register core CRUD commands."""
+
+    @cli.command()
+    @click.option("--limit", default=5, help="Limit the number of sessions to fetch.")
+    @click.option(
+        "--agent", default="opencode", help="Agent type to fetch sessions for."
+    )
+    def fetch(limit, agent):
+        """Fetch unprocessed sessions from Agent logs."""
+        try:
+            result = fetch_unprocessed_sessions(limit=limit, agent=agent)
+            click.echo(json.dumps(result))
+        except Exception as e:
+            click.echo(json.dumps({"error": str(e)}))
+
+    @cli.command()
+    @click.option(
+        "--session-id", required=True, help="Session ID to associate with the memory."
+    )
+    @click.option("--content", required=True, help="Distilled memory content.")
+    @click.option("--tags", help="Comma-separated tags.")
+    @click.option(
+        "--importance", default="medium", help="Importance level (high/medium/low)."
+    )
+    @click.option("--type", "memory_type", help="Memory type.")
+    def save(session_id, content, tags, importance, memory_type):
+        """Save a distilled memory and mark session as processed."""
+        try:
+            kwargs = {}
+            if memory_type:
+                kwargs["memory_type"] = memory_type
+            result = save_memory(
+                session_id=session_id,
+                content=content,
+                tags=tags,
+                importance=importance,
+                **kwargs,
+            )
+            click.echo(json.dumps(result))
+        except Exception as e:
+            click.echo(json.dumps({"error": str(e)}))
+
+    @cli.command()
+    @click.option(
+        "--session-id", required=True, help="Session ID to mark as processed."
+    )
+    def mark(session_id):
+        """Mark a session as processed without saving a memory."""
+        try:
+            result = mark_session(session_id=session_id)
+            click.echo(json.dumps(result))
+        except Exception as e:
+            click.echo(json.dumps({"error": str(e)}))
+
+    @cli.command()
+    @click.argument("query")
+    @click.option("--project", help="Filter by project path.")
+    @click.option("--tags", help="Filter by tags (comma-separated).")
+    @click.option("--limit", default=5, help="Limit the number of results.")
+    @click.option(
+        "--compact",
+        is_flag=True,
+        help="Return compact results (id, tags, preview only).",
+    )
+    @click.option(
+        "--mode", type=click.Choice(["hybrid", "vector", "fts"]), help="Search mode."
+    )
+    @click.option("--recency", type=float, help="Recency weight (0.0-1.0).")
+    @click.option(
+        "--include-superseded", is_flag=True, help="Include superseded memories."
+    )
+    @click.option("--explain", is_flag=True, help="Include detailed scoring breakdown.")
+    @click.option("--use-tag-index", is_flag=True, help="Use dual vector index.")
+    @click.option(
+        "--tag-weight", type=float, help="Weight for tag similarity (0.0-1.0)."
+    )
+    @click.option(
+        "--profile",
+        "-p",
+        type=click.Choice(get_profile_names()),
+        help="Search profile preset.",
+    )
+    @click.option("--min-score", type=float, help="Minimum score threshold (0.0-1.0).")
+    def search(
+        query,
+        project,
+        tags,
+        limit,
+        compact,
+        mode,
+        recency,
+        include_superseded,
+        explain,
+        use_tag_index,
+        tag_weight,
+        profile,
+        min_score,
+    ):
+        """Search memories using vector similarity."""
+        try:
+            result = search_memories(
+                query=query,
+                project_path=project,
+                tags=tags,
+                limit=limit,
+                compact=compact,
+                mode=mode,
+                recency_weight=recency,
+                include_superseded=include_superseded,
+                explain=explain,
+                use_tag_index=use_tag_index,
+                tag_weight=tag_weight,
+                profile=profile,
+                min_score=min_score,
+            )
+            click.echo(json.dumps(result))
+        except Exception as e:
+            click.echo(json.dumps({"error": str(e)}))
+
+    @cli.command("get")
+    @click.argument("ids", nargs=-1, required=True)
+    @click.option("--no-metadata", is_flag=True, help="Exclude metadata from results.")
+    def get_cmd(ids, no_metadata):
+        """Get full memory content by ID(s)."""
+        try:
+            result = get_memories(list(ids), include_metadata=not no_metadata)
+            click.echo(json.dumps(result))
+        except Exception as e:
+            click.echo(json.dumps({"error": str(e)}))
+
+    @cli.command("list")
+    @click.option("--limit", default=20, help="Maximum number of results.")
+    @click.option("--offset", default=0, help="Number of results to skip.")
+    @click.option("--project", help="Filter by project path.")
+    @click.option("--importance", help="Filter by importance (high/medium/low).")
+    @click.option("--sort", default="updated_at", help="Sort by field.")
+    @click.option("--order", default="desc", help="Sort order (asc, desc).")
+    def list_cmd(limit, offset, project, importance, sort, order):
+        """List memories without search query."""
+        try:
+            result = list_memories(
+                limit=limit,
+                offset=offset,
+                project_path=project,
+                importance=importance,
+                sort_by=sort,
+                sort_order=order,
+            )
+            click.echo(json.dumps(result))
+        except Exception as e:
+            click.echo(json.dumps({"error": str(e)}))
+
+    @cli.command()
+    @click.option("--content", required=True, help="Memory content.")
+    @click.option("--tags", help="Comma-separated tags.")
+    @click.option("--importance", default="medium", help="Importance level.")
+    def add(content, tags, importance):
+        """Add a new memory manually."""
+        try:
+            result = add_memory(content=content, tags=tags, importance=importance)
+            click.echo(json.dumps(result))
+        except Exception as e:
+            click.echo(json.dumps({"error": str(e)}))
+
+    @cli.command()
+    @click.argument("mem_id")
+    @click.option("--content", help="New memory content.")
+    @click.option("--tags", help="New tags.")
+    def update(mem_id, content, tags):
+        """Update an existing memory."""
+        try:
+            result = update_memory(mem_id=mem_id, content=content, tags=tags)
+            click.echo(json.dumps(result))
+        except Exception as e:
+            click.echo(json.dumps({"error": str(e)}))
+
+    @cli.command()
+    @click.argument("mem_id")
+    def delete(mem_id):
+        """Delete a memory."""
+        try:
+            result = delete_memory(mem_id=mem_id)
+            click.echo(json.dumps(result))
+        except Exception as e:
+            click.echo(json.dumps({"error": str(e)}))
+
+    @cli.command()
+    def stats():
+        """Show memory system statistics."""
+        try:
+            result = get_stats()
+            click.echo(json.dumps(result))
+        except Exception as e:
+            click.echo(json.dumps({"error": str(e)}))
