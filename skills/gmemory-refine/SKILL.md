@@ -5,38 +5,66 @@ description: Use when refining Agent history sessions into memories, needing fet
 
 # GMemory Refine
 
-## 目标
-将 Agent 历史会话提炼为可复用记忆，由 Agent 负责分析与取舍，脚本只做 I/O。
+## Objective
+Refine Agent history sessions into reusable memories. Agent analyzes and decides what to keep, script handles I/O only.
 
-## 触发短语
+## Trigger Phrases
 - "refine session"
 - "distill session"
-- "提炼会话"
-- "整理对话要点"
-- "处理未处理会话"
+- "process unprocessed sessions"
 - "save memory from session"
+- "summarize session logs"
 
-## 工作流 (fetch -> analyze -> save/mark)
-1) fetch 获取未处理会话
-2) Agent 分析 messages，选择可复用技术要点
-3) save 保存记忆 (会自动标记 session)
-4) 若 has_more 为 true，继续下一轮；否则结束
+## Workflow (fetch -> analyze -> save/mark)
 
-## 命令
+1. **fetch** - Get unprocessed sessions
+2. **analyze** - Agent reviews messages, selects reusable technical insights
+3. **save** - Save memory (auto-marks session as processed)
+4. **repeat** - If `has_more=true`, continue; otherwise done
+
+## Commands
+
+### Fetch Unprocessed Sessions
 ```bash
-# fetch
-python -m gmemory fetch --limit 5 --agent opencode
+gmemory fetch --limit 5 --agent opencode
 
-# save (保存后自动标记)
-python -m gmemory save --session-id "ses_abc123" --content "技术要点" --tags "auth,jwt" --importance "high" --type "solution"
-# 修改记忆
-python -m gmemory update "mem_id" [--content "new"] [--tags "new,tags"]
-
-# mark (仅标记，不保存, 无有价值信息)
-python -m gmemory mark --session-id "ses_abc123"
+# Or use process (alias with workflow hints)
+gmemory process --limit 5
 ```
 
-## JSON 输出示例
+### Save Memory (auto-marks session)
+```bash
+gmemory save \
+  --session-id "ses_abc123" \
+  --content "Technical insight about X" \
+  --tags "auth,jwt" \
+  --importance "high" \
+  --type "solution"
+```
+
+### Mark Without Saving (no valuable info)
+```bash
+gmemory mark --session-id "ses_abc123"
+```
+
+### Batch Mark Multiple Sessions
+```bash
+gmemory mark-all --status=skipped --reason="bulk cleanup"
+```
+
+### Update Existing Memory
+```bash
+gmemory update "mem_id" --content "updated content" --tags "new,tags"
+```
+
+### Check Backlog Status
+```bash
+gmemory backlog
+```
+
+## JSON Output Examples
+
+### Fetch Result
 ```json
 {
   "sessions": [
@@ -57,21 +85,44 @@ python -m gmemory mark --session-id "ses_abc123"
 }
 ```
 
+### Save Result
 ```json
 {"memory_id": "mem_xyz", "created": true, "session_marked": true}
 ```
 
+### Mark Result
 ```json
 {"session_id": "ses_abc123", "marked": true}
 ```
 
-## has_more 循环逻辑
-- has_more=true: 继续 fetch 下一批，直到 has_more=false
-- remaining 仅作提示，不应替代 has_more
-- 若不需要保存记忆，可用 mark 直接标记该 session
+## Loop Logic
 
-## 产出要求
-- content: 简洁、可复用的技术要点
-- tags: 逗号分隔，偏向稳定主题 (auth,jwt,cache)
-- importance: high/medium/low
-- type: decision/solution/pattern/preference
+```
+while true:
+    result = gmemory fetch --limit 5
+    
+    for session in result.sessions:
+        # Agent analyzes session.messages
+        if has_valuable_insight:
+            gmemory save --session-id=... --content=... --tags=...
+        else:
+            gmemory mark --session-id=...
+    
+    if not result.has_more:
+        break
+```
+
+## Output Requirements
+
+| Field | Description | Examples |
+|-------|-------------|----------|
+| content | Concise, reusable technical insight | "JWT refresh token rotation pattern with Redis" |
+| tags | Comma-separated, stable topics | `auth,jwt,redis,cache` |
+| importance | Priority level | `high`, `medium`, `low` |
+| type | Memory category | `decision`, `solution`, `pattern`, `preference` |
+
+## Tips
+- Focus on **reusable** insights, not session-specific details
+- Use stable tags (technology names, patterns) not ephemeral ones
+- Mark sessions without value to avoid re-processing
+- Use `gmemory backlog` to check progress

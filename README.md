@@ -47,13 +47,50 @@ GMemory is a lightweight CLI tool that provides persistent memory for AI coding 
 
 ## Installation
 
+### Quick Install (Recommended)
+
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/Keeyuu/GMemory.git
+cd GMemory
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+**Linux/macOS:**
+```bash
+git clone https://github.com/Keeyuu/GMemory.git
+cd GMemory
+chmod +x install.sh && ./install.sh
+```
+
+The install script will:
+1. Install GMemory package
+2. Install OpenCode skills to `~/.config/opencode/skills/`
+3. Create data directory `~/.gmemory/`
+
+### Manual Install
+
 ```bash
 # From source
 pip install -e .
 
 # Or with uv (recommended)
 uv pip install -e .
+
+# Install skills manually (optional)
+cp -r skills/* ~/.config/opencode/skills/
 ```
+
+### Install Options
+
+| Option | Description |
+|--------|-------------|
+| `--dev` | Install with dev dependencies (pytest, mypy) |
+| `--force` | Force reinstall (uninstall first, then install) |
+| `--skip-skills` | Skip OpenCode skills installation |
+| `--skills-dir <path>` | Custom skills directory |
+
+**Upgrade**: Simply re-run the install script to upgrade to the latest version.
 
 **Requirements**: Python 3.10+, sqlite-vec, fastembed
 
