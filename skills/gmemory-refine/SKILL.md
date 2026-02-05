@@ -1,6 +1,6 @@
 ---
 name: gmemory-refine
-description: Use when refining Agent history sessions into memories, needing fetch/save/mark loop, or when asked to distill sessions, summarize logs, or process unprocessed sessions for gmemory.
+description: Use when refining Agent history sessions into memories, processing session backlogs, or when the agent should learn from past conversations. Also triggers when there are unprocessed sessions that might contain valuable insights.
 ---
 
 # GMemory Refine
@@ -9,11 +9,43 @@ description: Use when refining Agent history sessions into memories, needing fet
 Refine Agent history sessions into reusable memories. Agent analyzes and decides what to keep, script handles I/O only.
 
 ## Trigger Phrases
+
+### Session Processing Triggers
 - "refine session"
 - "distill session"
 - "process unprocessed sessions"
 - "save memory from session"
 - "summarize session logs"
+- "extract insights from session"
+- "learn from past sessions"
+- "review session history"
+- "process backlog"
+- "catch up on sessions"
+
+### Knowledge Capture Triggers
+- "save this for later"
+- "remember this solution"
+- "this is worth remembering"
+- "store this pattern"
+- "capture this insight"
+- "document this decision"
+- "save this approach"
+- "record this learning"
+
+### Backlog Management Triggers
+- "check session backlog"
+- "how many unprocessed sessions"
+- "session status"
+- "pending sessions"
+- "unreviewed sessions"
+- "sessions to process"
+
+### Proactive Scenarios (Agent Should Consider)
+- After completing a significant task → offer to save key insights
+- When discovering a useful pattern → suggest saving it
+- When making important decisions → prompt to document reasoning
+- Periodically → check if there's a session backlog to process
+- After debugging sessions → extract solutions worth remembering
 
 ## Workflow (fetch -> analyze -> save/mark)
 
@@ -112,6 +144,25 @@ while true:
         break
 ```
 
+## What Makes a Good Memory
+
+### Worth Saving (HIGH VALUE)
+- Solutions to tricky bugs
+- Architecture decisions with reasoning
+- Patterns that worked well
+- Configuration that took time to figure out
+- Workarounds for library quirks
+- Performance optimizations
+- Security considerations
+- Integration patterns
+
+### Skip (LOW VALUE)
+- Routine CRUD operations
+- Simple typo fixes
+- Generic boilerplate
+- Conversations without technical substance
+- Incomplete or abandoned work
+
 ## Output Requirements
 
 | Field | Description | Examples |
@@ -126,3 +177,5 @@ while true:
 - Use stable tags (technology names, patterns) not ephemeral ones
 - Mark sessions without value to avoid re-processing
 - Use `gmemory backlog` to check progress
+- **Proactively offer** to save insights after significant work
+- Check backlog periodically - don't let it grow too large
