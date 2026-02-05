@@ -1,12 +1,12 @@
 ---
 name: gmemory
-description: Memory CRUD operations for gmemory including search, add, update, delete, and stats. Use PROACTIVELY when starting tasks, encountering problems, or when context about past work would be helpful. Search memories before implementing new features or debugging issues.
+description: Memory CRUD operations for gmemory including search, add, update, delete, and stats. Use PROACTIVELY when starting tasks, encountering problems, or when context about past work would be helpful. Search memories before implementing new features or debugging issues. Also use when discovering that stored knowledge is outdated or incorrect - memories should evolve with the codebase.
 ---
 
 # GMemory
 
 ## Objective
-Operate the memory store using CRUD commands and inspect overall stats.
+Operate the memory store using CRUD commands. Memories are living knowledge that should be searched, used, and **actively maintained** as the agent learns and evolves.
 
 ## Trigger Phrases
 
@@ -32,6 +32,20 @@ Operate the memory store using CRUD commands and inspect overall stats.
 - "background on"
 - "history of"
 
+### Memory Correction Triggers (SELF-EVOLUTION)
+- "this memory is wrong"
+- "this doesn't work anymore"
+- "outdated information"
+- "better approach found"
+- "memory needs update"
+- "incorrect memory"
+- "fix this memory"
+- "memory is stale"
+- "this pattern failed"
+- "learned a better way"
+- "memory conflict"
+- "supersede this memory"
+
 ### Proactive Search Scenarios (Agent Should Auto-Trigger)
 - Before implementing a new feature → search for similar patterns
 - When encountering an error → search for past solutions
@@ -42,17 +56,19 @@ Operate the memory store using CRUD commands and inspect overall stats.
 - When starting a new task → search for related work
 - When refactoring → search for design decisions
 
+### Proactive Correction Scenarios (Agent Should Auto-Trigger)
+- **When a memory's solution doesn't work** → Ask: "Should I update this memory?"
+- **When finding a better approach** → Ask: "Should I supersede the old memory?"
+- **When library/API has changed** → Ask: "This memory may be outdated, update?"
+- **When memory conflicts with current code** → Ask: "Memory seems stale, correct it?"
+- **When memory is too vague to use** → Ask: "Should I enrich this memory with details?"
+- **After fixing a bug caused by wrong memory** → Update the memory immediately
+
 ### CRUD Triggers
-- "add memory"
-- "save to memory"
-- "remember this"
-- "store this insight"
-- "update memory"
-- "modify memory"
-- "delete memory"
-- "remove memory"
-- "memory stats"
-- "how many memories"
+- "add memory" / "save to memory" / "remember this"
+- "update memory" / "modify memory" / "correct memory"
+- "delete memory" / "remove memory" / "forget this"
+- "memory stats" / "how many memories"
 
 ## Commands
 
@@ -73,16 +89,11 @@ gmemory q "query"
 
 ### Quick Commands
 ```bash
-# Recent memories (last 7 days)
-gmemory recent
-gmemory recent -d 30 -n 20
-
-# Today's activity
-gmemory today
-
-# Browse by tag
-gmemory tag python
-gmemory tags  # List all tags
+gmemory recent              # Recent memories (last 7 days)
+gmemory recent -d 30 -n 20  # Last 30 days
+gmemory today               # Today's activity
+gmemory tag python          # Browse by tag
+gmemory tags                # List all tags
 ```
 
 ### Add
@@ -90,9 +101,16 @@ gmemory tags  # List all tags
 gmemory add --content "Memory content" --tags "tag1,tag2" --importance "high"
 ```
 
-### Update
+### Update (IMPORTANT for self-evolution)
 ```bash
-gmemory update "mem_id" --content "new content" --tags "new,tags"
+# Update content
+gmemory update "mem_id" --content "corrected content"
+
+# Update tags
+gmemory update "mem_id" --tags "new,tags"
+
+# Full update
+gmemory update "mem_id" --content "better approach: ..." --tags "updated,tags"
 ```
 
 ### Delete
@@ -100,9 +118,51 @@ gmemory update "mem_id" --content "new content" --tags "new,tags"
 gmemory delete "mem_id"
 ```
 
+### Supersede (Replace old with new)
+```bash
+# When you find a better approach, supersede the old memory
+# This preserves history while marking old as replaced
+gmemory add --content "New better approach" --tags "..." --importance "high"
+# Then mark old as superseded (if supported) or delete
+```
+
 ### Stats
 ```bash
 gmemory stats
+```
+
+## Self-Evolution Workflow
+
+### Pattern 1: Discover & Correct
+```
+1. Search memory for approach
+2. Try the approach
+3. If it fails or is suboptimal:
+   - ASK USER: "The memory about X didn't work because Y. Should I update it?"
+   - If yes: gmemory update "mem_id" --content "corrected approach"
+```
+
+### Pattern 2: Learn & Improve
+```
+1. Complete a task successfully
+2. Compare with existing memories
+3. If new approach is better:
+   - ASK USER: "I found a better way to do X. Save as new memory?"
+   - If yes: gmemory add --content "improved approach" --tags "..."
+```
+
+### Pattern 3: Consolidate Knowledge
+```
+1. Notice multiple related memories
+2. ASK USER: "There are 3 memories about auth. Should I consolidate them?"
+3. If yes: Create comprehensive memory, mark others as superseded
+```
+
+### Pattern 4: Deprecate Outdated
+```
+1. Discover memory references old API/library version
+2. ASK USER: "This memory uses deprecated API. Update or delete?"
+3. Take appropriate action
 ```
 
 ## Search Profiles
@@ -128,16 +188,12 @@ gmemory get <memory-id>
 gmemory recent -d 7
 ```
 
-### When Encountering Problems
+### When Memory Doesn't Work
 ```bash
-# 1. Search for similar issues
-gmemory search "error message or symptom" --compact
-
-# 2. Search by technology/tag
-gmemory tag <technology>
-
-# 3. Check past decisions
-gmemory search "decision about X" --profile=recent
+# 1. Identify the problem
+# 2. Ask user about correction
+# 3. Update or delete as appropriate
+gmemory update "mem_id" --content "CORRECTED: original was wrong because..."
 ```
 
 ## JSON Output Examples
@@ -149,20 +205,17 @@ gmemory search "decision about X" --profile=recent
     {"id": "mem_x", "content": "...", "tags": ["tag1"], "score": 0.89}
   ],
   "total": 1,
-  "mode": "hybrid",
-  "profile": "balanced"
+  "mode": "hybrid"
 }
 ```
 
-### Add Result
-```json
-{"id": "mem_xyz", "created": true}
-```
-
-## Tips
+## Tips for Self-Evolution
 - **ALWAYS search before implementing** - check if similar work exists
-- Use `--compact` to save tokens (returns id, tags, preview only)
-- Use `--explain` to see detailed scoring breakdown
-- Use profiles instead of manual weight tuning
-- Quick commands (`q`, `recent`, `today`, `tag`) are faster for common operations
+- **ALWAYS verify memories** - don't blindly trust, validate against current state
+- **PROACTIVELY correct** - if a memory is wrong, fix it immediately
+- **ASK before major changes** - confirm with user before updating/deleting
+- **Prefer update over delete** - preserve history, add corrections
+- **Tag consistently** - use stable technology names for better retrieval
+- **Note failures** - when something doesn't work, record why
+- Use `--compact` to save tokens
 - When in doubt, search first - it's cheap and often saves time
