@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from gmemory.commands.search import search_memories
 from gmemory.commands.session_report import get_session_report
-from gmemory.storage.database import MemoryDatabase
+from gmemory.container import get_container
 
 
 def quick_search(
@@ -67,61 +67,24 @@ def recent_memories(
     Returns:
         Dict with recent memories.
     """
-    db = MemoryDatabase()
-    try:
-        cutoff = time.time() - (days * 24 * 3600)
+    container = get_container()
+    db = container.get_database()
 
-        # Build query
-        query = """
-            SELECT id, content, tags, importance, project_path, 
-                   created_at, updated_at
-            FROM memories 
-            WHERE updated_at >= ?
-            AND (superseded_by IS NULL OR superseded_by = '')
-        """
-        params: List[Any] = [cutoff]
+    memories = db.get_recent_memories(
+        days=days,
+        limit=limit,
+        project_path=project_path,
+        tags=tags,
+    )
 
-        if project_path:
-            query += " AND project_path = ?"
-            params.append(project_path)
+    cutoff = time.time() - (days * 24 * 3600)
 
-        if tags:
-            # Filter by tags (memory must have all specified tags)
-            for tag in tags:
-                query += " AND tags LIKE ?"
-                params.append(f"%{tag}%")
-
-        query += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(limit)
-
-        cursor = db.conn.execute(query, params)
-        rows = cursor.fetchall()
-
-        memories = []
-        for row in rows:
-            memories.append(
-                {
-                    "id": row["id"],
-                    "preview": row["content"][:150] + "..."
-                    if len(row["content"]) > 150
-                    else row["content"],
-                    "tags": row["tags"].split(",") if row["tags"] else [],
-                    "importance": row["importance"],
-                    "project_path": row["project_path"],
-                    "updated_at": row["updated_at"],
-                    "age_hours": round((time.time() - row["updated_at"]) / 3600, 1),
-                }
-            )
-
-        return {
-            "memories": memories,
-            "total": len(memories),
-            "days": days,
-            "cutoff_timestamp": cutoff,
-        }
-
-    finally:
-        db.close()
+    return {
+        "memories": memories,
+        "total": len(memories),
+        "days": days,
+        "cutoff_timestamp": cutoff,
+    }
 
 
 def recent_sessions(
@@ -153,72 +116,10 @@ def today_summary() -> Dict[str, Any]:
     Returns:
         Dict with today's memories and sessions.
     """
-    db = MemoryDatabase()
-    try:
-        # Start of today (midnight)
-        now = time.time()
-        today_start = now - (now % 86400)  # Round down to midnight UTC
+    container = get_container()
+    db = container.get_database()
 
-        # Count today's memories
-        cursor = db.conn.execute(
-            "SELECT COUNT(*) FROM memories WHERE created_at >= ?", (today_start,)
-        )
-        new_memories = cursor.fetchone()[0]
-
-        cursor = db.conn.execute(
-            "SELECT COUNT(*) FROM memories WHERE updated_at >= ? AND created_at < ?",
-            (today_start, today_start),
-        )
-        updated_memories = cursor.fetchone()[0]
-
-        # Count today's sessions
-        cursor = db.conn.execute(
-            "SELECT COUNT(DISTINCT source_session_id) FROM memories WHERE created_at >= ?",
-            (today_start,),
-        )
-        active_sessions = cursor.fetchone()[0]
-
-        # Get recent memories (last 5)
-        cursor = db.conn.execute(
-            """
-            SELECT id, content, tags, updated_at 
-            FROM memories 
-            WHERE updated_at >= ?
-            ORDER BY updated_at DESC 
-            LIMIT 5
-        """,
-            (today_start,),
-        )
-
-        recent = []
-        for row in cursor:
-            recent.append(
-                {
-                    "id": row["id"],
-                    "preview": row["content"][:100] + "..."
-                    if len(row["content"]) > 100
-                    else row["content"],
-                    "tags": row["tags"].split(",") if row["tags"] else [],
-                }
-            )
-
-        # Get total stats
-        cursor = db.conn.execute("SELECT COUNT(*) FROM memories")
-        total_memories = cursor.fetchone()[0]
-
-        return {
-            "date": time.strftime("%Y-%m-%d"),
-            "today": {
-                "new_memories": new_memories,
-                "updated_memories": updated_memories,
-                "active_sessions": active_sessions,
-            },
-            "recent_memories": recent,
-            "total_memories": total_memories,
-        }
-
-    finally:
-        db.close()
+    return db.get_today_stats()
 
 
 def find_by_tag(
@@ -236,52 +137,38 @@ def find_by_tag(
     Returns:
         Dict with matching memories.
     """
-    db = MemoryDatabase()
-    try:
-        cursor = db.conn.execute(
-            """
-            SELECT id, content, tags, importance, project_path, updated_at
-            FROM memories
-            WHERE tags LIKE ?
-            AND (superseded_by IS NULL OR superseded_by = '')
-            ORDER BY updated_at DESC
-            LIMIT ?
-        """,
-            (f"%{tag}%", limit),
-        )
+    container = get_container()
+    db = container.get_database()
 
-        memories = []
-        for row in cursor:
-            if compact:
-                memories.append(
-                    {
-                        "id": row["id"],
-                        "preview": row["content"][:150] + "..."
-                        if len(row["content"]) > 150
-                        else row["content"],
-                        "tags": row["tags"].split(",") if row["tags"] else [],
-                    }
-                )
-            else:
-                memories.append(
-                    {
-                        "id": row["id"],
-                        "content": row["content"],
-                        "tags": row["tags"].split(",") if row["tags"] else [],
-                        "importance": row["importance"],
-                        "project_path": row["project_path"],
-                        "updated_at": row["updated_at"],
-                    }
-                )
+    memories_data = db.find_memories_by_tag(tag=tag, limit=limit)
 
-        return {
-            "tag": tag,
-            "memories": memories,
-            "total": len(memories),
-        }
+    memories = []
+    for mem in memories_data:
+        if compact:
+            memories.append(
+                {
+                    "id": mem["id"],
+                    "preview": mem["preview"],
+                    "tags": mem["tags"],
+                }
+            )
+        else:
+            memories.append(
+                {
+                    "id": mem["id"],
+                    "content": mem["content"],
+                    "tags": mem["tags"],
+                    "importance": mem["importance"],
+                    "project_path": mem["project_path"],
+                    "updated_at": mem["updated_at"],
+                }
+            )
 
-    finally:
-        db.close()
+    return {
+        "tag": tag,
+        "memories": memories,
+        "total": len(memories),
+    }
 
 
 def list_all_tags(limit: int = 50) -> Dict[str, Any]:
@@ -293,30 +180,17 @@ def list_all_tags(limit: int = 50) -> Dict[str, Any]:
     Returns:
         Dict with tag list and counts.
     """
-    db = MemoryDatabase()
-    try:
-        cursor = db.conn.execute("""
-            SELECT tags FROM memories 
-            WHERE tags IS NOT NULL AND tags != ''
-            AND (superseded_by IS NULL OR superseded_by = '')
-        """)
+    container = get_container()
+    db = container.get_database()
 
-        tag_counts: Dict[str, int] = {}
-        for row in cursor:
-            tags = row["tags"].split(",")
-            for tag in tags:
-                tag = tag.strip()
-                if tag:
-                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+    sorted_tags = db.get_all_tags(limit=limit)
 
-        # Sort by count descending
-        sorted_tags = sorted(tag_counts.items(), key=lambda x: (-x[1], x[0]))[:limit]
+    # Get total unique count (may be more than limit)
+    all_tags = db.get_all_tags(limit=10000)
+    total_unique = len(all_tags)
 
-        return {
-            "tags": [{"tag": t, "count": c} for t, c in sorted_tags],
-            "total_unique": len(tag_counts),
-            "showing": len(sorted_tags),
-        }
-
-    finally:
-        db.close()
+    return {
+        "tags": [{"tag": t, "count": c} for t, c in sorted_tags],
+        "total_unique": total_unique,
+        "showing": len(sorted_tags),
+    }

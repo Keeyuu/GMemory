@@ -3,10 +3,10 @@
 import time
 from typing import List, Optional, Dict, Any, Union
 
-from gmemory.storage.database import MemoryDatabase
-from gmemory.storage.embedder import get_embedder, NoOpEmbedder, is_valid_embedding
-from gmemory.config import config
+from gmemory.container import get_container
+from gmemory.storage.embedder import NoOpEmbedder, is_valid_embedding
 from gmemory.commands.profiles import get_profile, SearchProfile, DEFAULT_PROFILE
+from gmemory.ports import ConfigPort, DatabasePort, EmbedderPort
 
 
 def search_memories(
@@ -50,6 +50,11 @@ def search_memories(
         - scoring_config: Scoring configuration used (if explain=True)
         - warning/error: Optional message if search quality is degraded
     """
+    # Get dependencies from container
+    container = get_container()
+    cfg = container.get_config()
+    db = container.get_database()
+
     # Resolve profile and apply settings
     active_profile: Optional[SearchProfile] = None
     if profile:
@@ -62,9 +67,9 @@ def search_memories(
             }
 
     # Apply config defaults first, then profile, then CLI overrides
-    effective_limit = limit if limit is not None else config.search_default_limit
+    effective_limit = limit if limit is not None else cfg.search_default_limit
     effective_min_score = (
-        min_score if min_score is not None else config.search_min_score_threshold
+        min_score if min_score is not None else cfg.search_min_score_threshold
     )
 
     # Apply profile defaults, then allow individual overrides
@@ -83,17 +88,15 @@ def search_memories(
         )
     else:
         # Use config defaults when no profile specified
-        effective_mode = mode if mode is not None else config.search_default_mode
+        effective_mode = mode if mode is not None else cfg.search_default_mode
         effective_recency = (
-            recency_weight
-            if recency_weight is not None
-            else config.search_recency_weight
+            recency_weight if recency_weight is not None else cfg.search_recency_weight
         )
         effective_use_tag_index = (
-            use_tag_index if use_tag_index is not None else config.search_use_tag_index
+            use_tag_index if use_tag_index is not None else cfg.search_use_tag_index
         )
         effective_tag_weight = (
-            tag_weight if tag_weight is not None else config.search_tag_weight
+            tag_weight if tag_weight is not None else cfg.search_tag_weight
         )
 
     # Normalize tags: support both list and comma-separated string
@@ -106,12 +109,12 @@ def search_memories(
     # Clamp tag_weight to valid range
     effective_tag_weight = max(0.0, min(1.0, effective_tag_weight))
 
-    db = MemoryDatabase()
     try:
         # FTS-only mode (no embedding needed)
         if effective_mode == "fts":
             result = _search_fts_only(
                 db,
+                cfg,
                 query,
                 project_path,
                 tags,
@@ -128,11 +131,12 @@ def search_memories(
 
         # Vector or hybrid mode - need embedding
         try:
-            embedder = get_embedder()
+            embedder = container.get_embedder()
             if isinstance(embedder, NoOpEmbedder):
                 # Fall back to FTS-only
                 result = _search_fts_only(
                     db,
+                    cfg,
                     query,
                     project_path,
                     tags,
@@ -150,9 +154,10 @@ def search_memories(
             query_embedding = embedder.embed(query)
 
             # Validate the embedding
-            if not is_valid_embedding(query_embedding, config.embedding_dimension):
+            if not is_valid_embedding(query_embedding, cfg.embedding_dimension):
                 result = _search_fts_only(
                     db,
+                    cfg,
                     query,
                     project_path,
                     tags,
@@ -170,6 +175,7 @@ def search_memories(
         except Exception as e:
             result = _search_fts_only(
                 db,
+                cfg,
                 query,
                 project_path,
                 tags,
@@ -215,6 +221,7 @@ def search_memories(
 
         results = _filter_and_format(
             candidates,
+            cfg,
             project_path,
             tags,
             effective_limit,
@@ -246,11 +253,12 @@ def search_memories(
         return response
 
     finally:
-        db.close()
+        # Note: We don't close db here as it's managed by the container
+        pass
 
 
 def _hybrid_search_with_scores(
-    db: MemoryDatabase,
+    db: DatabasePort,
     query_embedding: List[float],
     query_text: str,
     limit: int,
@@ -287,7 +295,7 @@ def _hybrid_search_with_scores(
 
     # Get tag search results if enabled
     tag_results = []
-    if use_tag_index and db._has_tag_index():
+    if use_tag_index and db.has_tag_index():
         tag_results = db.search_tags(query_embedding, limit=limit)
 
     # Build score maps
@@ -376,7 +384,8 @@ def _hybrid_search_with_scores(
 
 
 def _search_fts_only(
-    db: MemoryDatabase,
+    db: DatabasePort,
+    cfg: ConfigPort,
     query: str,
     project_path: Optional[str],
     tags: Optional[List[str]],
@@ -430,6 +439,7 @@ def _search_fts_only(
 
     results = _filter_and_format(
         candidates,
+        cfg,
         project_path,
         tags,
         limit,
@@ -454,6 +464,7 @@ def _search_fts_only(
 
 def _filter_and_format(
     candidates: List[Dict[str, Any]],
+    cfg: ConfigPort,
     project_path: Optional[str],
     tags: Optional[List[str]],
     limit: int,
@@ -467,6 +478,7 @@ def _filter_and_format(
 
     Args:
         candidates: List of dicts with memory and score breakdown.
+        cfg: Configuration port for accessing settings.
         project_path: Optional project path filter.
         tags: Optional tags filter.
         limit: Maximum results to return.
@@ -481,7 +493,7 @@ def _filter_and_format(
     """
     now = time.time()
     # Use config for recency window
-    recency_window = config.search_recency_window_days * 24 * 3600
+    recency_window = cfg.search_recency_window_days * 24 * 3600
 
     filtered = []
 

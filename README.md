@@ -1,6 +1,12 @@
 # GMemory
 
-Local Agent Persistent Memory System for OpenCode.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-136%20passed-brightgreen.svg)]()
+
+**Local Agent Persistent Memory System for OpenCode**
+
+[中文文档](README_CN.md)
 
 ## Overview
 
@@ -10,32 +16,43 @@ GMemory is a lightweight CLI tool that provides persistent memory for AI coding 
 
 ## Features
 
+### Core Capabilities
 - **Hybrid Search**: Combined vector similarity (sqlite-vec) + FTS5 full-text search with weighted scoring
 - **Progressive Disclosure**: `search --compact` → `get <ids>` workflow to minimize token usage
 - **Local Embeddings**: FastEmbed with nomic-embed-text-v1.5 (768 dims) - no external API calls
 - **Incremental Scanning**: Track file changes via content_hash/mtime/size to skip unchanged sessions
+
+### Data Management
 - **Privacy Protection**: `<private>` tag filtering strips sensitive content before storage
 - **Memory Lifecycle**: Supersede mechanism for updating memories while preserving history
+- **Deduplication**: Find and merge similar/duplicate memories (vector, simhash, minhash)
+- **Data Lifecycle**: Purge, compact, and reindex commands for long-term maintenance
+
+### Search & Discovery
 - **Recency Weighting**: Optional time-decay scoring to favor recent memories
-- **Schema Migrations**: Versioned database schema with automatic migration on startup
-- **Data Validation**: Field-level validation on write paths to ensure data quality
-- **Diagnostics**: Built-in health checks for sqlite-vec, dimensions, and schema status
-- **Session Aggregation**: Group memories by session for efficient review and auditing
 - **Search Explainability**: Detailed scoring breakdown showing vector/FTS/recency contributions
 - **Dual Vector Index**: Optional tag-based semantic search for improved matching
 - **Search Profiles**: Pre-configured search presets for common use cases
-- **Deduplication**: Find and merge similar/duplicate memories with multiple strategies (vector, simhash, minhash)
+
+### Operations
+- **Schema Migrations**: Versioned database schema with automatic migration on startup
+- **Data Validation**: Field-level validation on write paths to ensure data quality
+- **Diagnostics**: Built-in health checks for sqlite-vec, dimensions, and schema status
 - **Export**: Export memories and reports to Markdown or JSON
-- **Data Lifecycle**: Purge, compact, and reindex commands for long-term maintenance
+
+### Extensibility
 - **Embedding Profiles**: Multiple embedding model configurations with migration workflow
-- **Index Health Check**: Comprehensive diagnostics for all database indexes
-- **Quick Commands**: Shortcut commands for common high-frequency operations
 - **Source Adapters**: Pluggable architecture for parsing different agent log formats
+- **Quick Commands**: Shortcut commands for common high-frequency operations
 
 ## Installation
 
 ```bash
+# From source
 pip install -e .
+
+# Or with uv (recommended)
+uv pip install -e .
 ```
 
 **Requirements**: Python 3.10+, sqlite-vec, fastembed
@@ -56,92 +73,109 @@ gmemory search "authentication pattern" --compact
 gmemory get <memory-id>
 ```
 
-## Commands
+## Commands Reference
+
+### Core Commands
 
 | Command | Description |
 |---------|-------------|
 | `fetch` | Get unprocessed sessions from OpenCode logs |
 | `process` | Workflow entry: fetch sessions for review |
 | `save` | Save distilled memory and mark session processed |
-| `mark` | Mark session as processed without saving memory |
-| `mark-all` | Batch mark multiple sessions as processed |
-| `backlog` | Show session backlog status and workflow suggestions |
 | `search` | Hybrid/vector/FTS search with filters |
 | `get` | Get full memory content by ID(s) |
 | `list` | Browse memories with pagination |
 | `add` | Manually add a memory |
 | `update` | Update existing memory |
 | `delete` | Delete a memory |
-| `rebuild` | Rebuild embeddings and/or FTS index |
-| `diagnostics` | Show database health and configuration |
 | `stats` | Show system statistics |
-| `scan-runs` | List recent scan runs |
-| `scan-errors` | List scan errors for manual recovery |
-| `scan-errors-resolve` | Mark scan errors as resolved |
-| `scan-errors-summary` | Show scan error summary with recommendations |
-| `scan-errors-batch-resolve` | Batch resolve scan errors by type |
+
+### Workflow Commands
+
+| Command | Description |
+|---------|-------------|
+| `mark` | Mark session as processed without saving memory |
+| `mark-all` | Batch mark multiple sessions as processed |
+| `backlog` | Show session backlog status and workflow suggestions |
 | `session-report` | Generate session-level aggregation report |
 | `session-detail` | Get detailed information about a specific session |
+
+### Search & Discovery
+
+| Command | Description |
+|---------|-------------|
 | `profiles` | List available search profiles |
+| `q` | Quick search shortcut (compact mode) |
+| `recent` | Show most recent memories |
+| `today` | Show today's activity summary |
+| `tag` | Find memories by tag |
+| `tags` | List all tags with counts |
+
+### Deduplication & Export
+
+| Command | Description |
+|---------|-------------|
 | `dedupe` | Find groups of similar/duplicate memories |
 | `merge` | Merge multiple memories into one |
 | `auto-dedupe` | Automatically find and merge near-duplicates |
 | `session-export` | Export session memories to Markdown/JSON |
 | `report-export` | Export session report to Markdown/JSON |
 | `export` | Export memories by ID or filters |
+
+### Maintenance
+
+| Command | Description |
+|---------|-------------|
+| `rebuild` | Rebuild embeddings and/or FTS index |
+| `diagnostics` | Show database health and configuration |
+| `health` | Check index health and identify issues |
 | `purge` | Delete old memories based on retention policy |
 | `compact` | Compact and optimize the database |
 | `reindex` | Rebuild database indexes (embeddings, FTS, tags) |
 | `lifecycle-stats` | Show memory age distribution and lifecycle info |
-| `embedding-profiles` | List/show embedding model profiles |
-| `embedding-check` | Check compatibility before switching profiles |
-| `embedding-switch` | Switch to a different embedding profile |
-| `index-info` | Show index version and coverage information |
-| `health` | Check index health and identify issues |
-| `q` | Quick search shortcut (compact mode) |
-| `recent` | Show most recent memories |
-| `today` | Show today's activity summary |
-| `tag` | Find memories by tag |
-| `tags` | List all tags with counts |
-| `sources` | List available source adapters |
-| `detect-source` | Detect source type from a directory |
+
+### Configuration
+
+| Command | Description |
+|---------|-------------|
 | `config-templates` | List available configuration templates |
 | `config-generate` | Generate config file from template |
 | `config-init` | Initialize project-level configuration |
 | `config-show` | Show current effective configuration |
+| `embedding-profiles` | List/show embedding model profiles |
+| `embedding-check` | Check compatibility before switching profiles |
+| `embedding-switch` | Switch to a different embedding profile |
+
+### Error Management
+
+| Command | Description |
+|---------|-------------|
+| `scan-runs` | List recent scan runs |
+| `scan-errors` | List scan errors for manual recovery |
+| `scan-errors-resolve` | Mark scan errors as resolved |
+| `scan-errors-summary` | Show scan error summary with recommendations |
+| `scan-errors-batch-resolve` | Batch resolve scan errors by type |
+
+## Search
 
 ### Search Options
 
 ```bash
 gmemory search "query" \
-  --profile=recent \     # Use preset profile (see below)
-  --mode=hybrid \        # hybrid (default), vector, fts
-  --compact \            # Return previews only (saves tokens)
-  --recency=0.3 \        # Weight for recent memories (0.0-1.0)
-  --project=/path \      # Filter by project
-  --tags=python,api \    # Filter by tags
-  --include-superseded \ # Include replaced memories
-  --explain \            # Show detailed scoring breakdown
-  --use-tag-index \      # Enable dual vector search (content + tags)
-  --tag-weight=0.3 \     # Weight for tag similarity (0.0-1.0)
-  --min-score=0.2        # Minimum score threshold (0.0-1.0)
+  --profile=recent \        # Use preset profile
+  --mode=hybrid \           # hybrid (default), vector, fts
+  --compact \               # Return previews only (saves tokens)
+  --recency=0.3 \           # Weight for recent memories (0.0-1.0)
+  --project=/path \         # Filter by project
+  --tags=python,api \       # Filter by tags
+  --include-superseded \    # Include replaced memories
+  --explain \               # Show detailed scoring breakdown
+  --use-tag-index \         # Enable dual vector search
+  --tag-weight=0.3 \        # Weight for tag similarity (0.0-1.0)
+  --min-score=0.2           # Minimum score threshold (0.0-1.0)
 ```
 
 ### Search Profiles
-
-Profiles provide pre-configured search settings for common use cases:
-
-```bash
-# List available profiles
-gmemory profiles
-
-# Show profile details
-gmemory profiles recent
-
-# Use a profile
-gmemory search "authentication" --profile=recent
-gmemory search "python" -p tag-heavy --explain
-```
 
 | Profile | Mode | Recency | Tags | Description |
 |---------|------|---------|------|-------------|
@@ -154,245 +188,66 @@ gmemory search "python" -p tag-heavy --explain
 | `tag-only` | hybrid | 0.0 | 0.8 | Search primarily by tags |
 | `fresh-tags` | hybrid | 0.3 | 0.5 | Tags + recency combined |
 
-Individual options (--mode, --recency, etc.) override profile settings.
-
-### Session Aggregation
-
-```bash
-# View session-level summary
-gmemory session-report --limit=10 --since=7
-
-# Get details for a specific session
-gmemory session-detail <session-id>
-gmemory session-detail <session-id> --full  # Include full content
-```
-
-### Deduplication
-
-Find and merge similar/duplicate memories with multiple strategies:
-
-```bash
-# Find duplicate groups (vector similarity - default)
-gmemory dedupe                          # Default threshold 0.85
-gmemory dedupe --threshold=0.90         # Stricter matching
-gmemory dedupe --strategy=simhash       # Use SimHash (faster, no embeddings)
-gmemory dedupe --strategy=minhash       # Use MinHash (Jaccard similarity)
-gmemory dedupe --project=/path          # Filter by project
-
-# Merge specific memories
-gmemory merge mem1 mem2 mem3 --dry-run   # Preview merge
-gmemory merge mem1 mem2 --keep=mem2      # Keep mem2 as primary
-gmemory merge mem1 mem2 mem3             # Apply merge
-
-# Auto-dedupe (high threshold, safe)
-gmemory auto-dedupe                      # Preview what would be merged
-gmemory auto-dedupe --threshold=0.90     # Lower threshold
-gmemory auto-dedupe --strategy=simhash   # Use SimHash
-gmemory auto-dedupe --apply              # Actually merge duplicates
-```
-
-**Deduplication Strategies:**
-| Strategy | Description | Use Case |
-|----------|-------------|----------|
-| `vector` | Semantic similarity using embeddings | Most accurate, requires embeddings |
-| `simhash` | Locality-sensitive hashing | Fast, good for near-duplicates |
-| `minhash` | Jaccard similarity estimation | Good for content overlap detection |
-
-### Export
-
-Export memories and reports to Markdown or JSON:
-
-```bash
-# Export session memories
-gmemory session-export ses_abc123
-gmemory session-export ses_abc123 --format=json
-gmemory session-export ses_abc123 -o session.md
-
-# Export session report
-gmemory report-export
-gmemory report-export --format=json --since=7
-gmemory report-export -o report.md --limit=50
-
-# Export specific memories
-gmemory export mem1 mem2 mem3
-gmemory export --project=/path --format=json
-gmemory export --tags=python,api -o export.md
-```
-
-### Data Lifecycle Management
-
-Manage database size and performance over time:
-
-```bash
-# Purge old memories (dry-run by default)
-gmemory purge --days=90              # Preview purge of memories > 90 days
-gmemory purge --days=90 --apply      # Actually purge
-gmemory purge --apply --no-archive   # Purge without archiving
-
-# Compact database
-gmemory compact                      # Full compaction (VACUUM + ANALYZE)
-gmemory compact --no-vacuum          # Only analyze, skip vacuum
-gmemory compact --rebuild-fts        # Also rebuild FTS index
-
-# Reindex (dry-run by default)
-gmemory reindex                      # Preview all reindex
-gmemory reindex --target=embeddings  # Preview embedding rebuild
-gmemory reindex --target=fts --apply # Rebuild FTS index
-gmemory reindex --apply              # Rebuild everything
-
-# View lifecycle statistics
-gmemory lifecycle-stats              # Memory age distribution, DB size
-```
-
-### Embedding Profiles
-
-Manage multiple embedding model configurations:
-
 ```bash
 # List available profiles
-gmemory embedding-profiles
+gmemory profiles
 
-# Show profile details
-gmemory embedding-profiles nomic
-
-# Check compatibility before switching
-gmemory embedding-check bge-small
-
-# Switch profile (dry-run by default)
-gmemory embedding-switch bge-small              # Preview switch
-gmemory embedding-switch bge-small --apply      # Switch (runtime only)
-gmemory embedding-switch bge-small --apply --rebuild  # Switch and rebuild
-
-# View index version info
-gmemory index-info
-```
-
-### Index Health Check
-
-Monitor and diagnose index issues:
-
-```bash
-# Standard health check
-gmemory health
-
-# Detailed diagnostics
-gmemory health --verbose
-
-# Quick check (faster)
-gmemory health --quick
+# Use a profile
+gmemory search "authentication" --profile=recent
 ```
 
 ### Quick Commands
-
-Shortcut commands for common operations:
 
 ```bash
 # Quick search (compact mode)
 gmemory q "authentication"
 gmemory q "api design" -n 10
-gmemory q "error handling" -d 7    # Boost recent
 
 # Recent memories
-gmemory recent                     # Last 7 days
-gmemory recent -d 30               # Last 30 days
-gmemory recent -d 1 -n 20          # Last 24 hours
+gmemory recent              # Last 7 days
+gmemory recent -d 30        # Last 30 days
 
 # Today's summary
 gmemory today
 
 # Browse by tag
 gmemory tag python
-gmemory tag api -n 50
-gmemory tags                       # List all tags with counts
+gmemory tags                # List all tags
 ```
 
-### Source Adapters
+## Deduplication
 
-Pluggable architecture for different agent log formats:
+Find and merge similar/duplicate memories:
 
 ```bash
-# List available adapters
-gmemory sources
+# Find duplicate groups
+gmemory dedupe                          # Default threshold 0.85
+gmemory dedupe --threshold=0.90         # Stricter matching
+gmemory dedupe --strategy=simhash       # Use SimHash (faster)
+gmemory dedupe --strategy=minhash       # Use MinHash
 
-# Show adapter details
-gmemory sources opencode
+# Merge memories
+gmemory merge mem1 mem2 mem3 --dry-run  # Preview
+gmemory merge mem1 mem2 --keep=mem2     # Keep mem2 as primary
 
-# Detect source type from directory
-gmemory detect-source ~/.local/share/opencode/storage
+# Auto-dedupe
+gmemory auto-dedupe                     # Preview
+gmemory auto-dedupe --apply             # Execute
 ```
 
-**Available Adapters:**
+**Strategies:**
 
-| Adapter | Description | Log Location |
-|---------|-------------|--------------|
-| `opencode` | OpenCode session logs (default) | `~/.local/share/opencode/storage` |
-| `codex-cli` | OpenAI Codex CLI logs | `~/.codex/logs` |
-| `cursor` | Cursor IDE conversation logs | `~/.cursor/logs` |
-| `aider` | Aider chat history | `.aider.chat.history.md` |
-
-Each adapter handles the specific log format and extracts session metadata for processing.
-
-### Configuration Templates
-
-Pre-configured templates for different use cases:
-
-```bash
-# List available templates
-gmemory config-templates
-
-# Generate config from template
-gmemory config-generate minimal -o config.toml
-gmemory config-generate semantic-heavy  # Output to stdout
-
-# Initialize project-level config
-gmemory config-init                     # Uses 'default' template
-gmemory config-init --template=project-isolated
-
-# Show current effective configuration
-gmemory config-show
-gmemory config-show --section=search    # Show specific section
-```
-
-**Available Templates:**
-
-| Template | Description |
-|----------|-------------|
-| `default` | Balanced settings for general use |
-| `minimal` | Lightweight config, fewer features enabled |
-| `semantic-heavy` | Prioritize vector search over FTS |
-| `recent-focused` | Strong recency weighting for fresh memories |
-| `project-isolated` | Strict project boundaries, no cross-project search |
-
-**Project-Level Configuration:**
-
-Create `.gmemory/config.toml` in your project root to override global settings:
-
-```bash
-cd /path/to/project
-gmemory config-init --template=project-isolated
-# Creates .gmemory/config.toml with project-specific settings
-```
-
-### Batch Workflow Commands
-
-Efficiently manage session backlogs:
-
-```bash
-# View backlog status and recommendations
-gmemory backlog
-
-# Batch mark sessions as processed
-gmemory mark-all --status=skipped --reason="bulk cleanup"
-gmemory mark-all --before=2024-01-01 --status=skipped
-
-# Scan error management
-gmemory scan-errors-summary              # View error summary with suggestions
-gmemory scan-errors-batch-resolve --type=parse_error --action=skip
-```
+| Strategy | Description | Use Case |
+|----------|-------------|----------|
+| `vector` | Semantic similarity using embeddings | Most accurate |
+| `simhash` | Locality-sensitive hashing | Fast, near-duplicates |
+| `minhash` | Jaccard similarity estimation | Content overlap |
 
 ## Configuration
 
-Default configuration in `config.toml`, override with `~/.gmemory/config.toml`:
+### Config File
+
+Default: `~/.gmemory/config.toml`
 
 ```toml
 [storage]
@@ -431,77 +286,182 @@ use_tag_index = false
 tag_weight = 0.3
 
 [lifecycle]
-retention_days = 0          # 0 = no auto-purge
+retention_days = 0              # 0 = no auto-purge
 archive_before_purge = true
 auto_compact_threshold = 1000
 ```
 
+### Configuration Templates
+
+| Template | Description |
+|----------|-------------|
+| `default` | Balanced settings for general use |
+| `minimal` | Lightweight config, fewer features |
+| `semantic-heavy` | Prioritize vector search over FTS |
+| `recent-focused` | Strong recency weighting |
+| `project-isolated` | Strict project boundaries |
+
+```bash
+# Generate config from template
+gmemory config-generate minimal -o config.toml
+
+# Initialize project-level config
+gmemory config-init --template=project-isolated
+```
+
+### Project-Level Configuration
+
+Create `.gmemory/config.toml` in your project root to override global settings.
+
+## Source Adapters
+
+Pluggable architecture for different agent log formats:
+
+| Adapter | Description | Log Location |
+|---------|-------------|--------------|
+| `opencode` | OpenCode session logs (default) | `~/.local/share/opencode/storage` |
+| `codex-cli` | OpenAI Codex CLI logs | `~/.codex/logs` |
+| `cursor` | Cursor IDE conversation logs | `~/.cursor/logs` |
+| `aider` | Aider chat history | `.aider.chat.history.md` |
+
+```bash
+gmemory sources              # List adapters
+gmemory detect-source <dir>  # Auto-detect
+```
+
 ## Architecture
+
+### Project Structure
 
 ```
 gmemory/
-├── cli/                    # Modular CLI command groups
-│   ├── __init__.py         # CLI entry point and registration
-│   ├── core.py             # Core CRUD commands (fetch, save, search, get, list, add, update, delete, stats)
-│   ├── workflow.py         # Workflow commands (process, mark-all, backlog, scan-*, session-*)
-│   ├── maintenance.py      # Maintenance commands (rebuild, diagnostics, health, purge, compact, reindex)
-│   ├── export_cmds.py      # Export commands (session-export, report-export, export)
-│   ├── config_cmds.py      # Configuration commands (config-templates, config-generate, config-init, config-show)
-│   ├── quick_cmds.py       # Quick shortcuts (q, recent, today, tag, tags)
-│   └── adapters_cmds.py    # Adapter commands (sources, detect-source)
-├── commands/               # Command business logic
-│   ├── search.py           # Hybrid search with recency weighting
+├── ports.py                # Protocol interfaces (ISP-compliant)
+├── container.py            # DI container (singleton, lazy init)
+├── errors.py               # Structured error codes (GMEM-XXX-NNN)
+├── config.py               # Configuration management
+├── models.py               # Memory, Session dataclasses
+├── validation.py           # Data quality constraints
+│
+├── cli/                    # CLI layer (Click-based)
+│   ├── core.py             # CRUD commands
+│   ├── workflow.py         # Workflow commands
+│   ├── maintenance.py      # Maintenance commands
+│   ├── export_cmds.py      # Export commands
+│   ├── config_cmds.py      # Config commands
+│   ├── quick_cmds.py       # Quick shortcuts
+│   └── error_handler.py    # @cli_command decorator
+│
+├── commands/               # Business logic layer
+│   ├── search.py           # Hybrid search algorithm
 │   ├── profiles.py         # Search profile presets
-│   ├── dedupe.py           # Deduplication (vector/simhash/minhash)
+│   ├── dedupe.py           # Deduplication strategies
 │   ├── export.py           # Export to Markdown/JSON
-│   ├── lifecycle.py        # Purge, compact, reindex commands
-│   ├── embedding_profiles.py # Embedding model management
+│   ├── lifecycle.py        # Purge, compact, reindex
 │   ├── health.py           # Index health diagnostics
 │   ├── quick.py            # Quick access shortcuts
-│   ├── workflow.py         # process/save_batch/backlog helpers
-│   └── rebuild.py          # Index rebuild utilities
-├── storage/
+│   └── workflow.py         # Session processing
+│
+├── storage/                # Persistence layer
 │   ├── database.py         # SQLite + sqlite-vec + FTS5
 │   ├── embedder.py         # FastEmbed integration
-│   └── migrations.py       # Schema version management
-├── scanner/
-│   ├── base.py             # ScannerRegistry pattern
-│   ├── opencode.py         # OpenCode log parser
-│   ├── adapters.py         # Source adapters (OpenCode, Codex, Cursor, Aider)
-│   └── state.py            # Incremental scan state
-├── utils/
-│   └── privacy.py          # <private> tag filtering
-├── validation.py           # Data quality constraints
-├── models.py               # Memory, Session dataclasses
-├── config.py               # Configuration management with templates
-├── errors.py               # Structured error codes (GMEM-XXX-NNN)
-└── logging.py              # Configurable structured logging
+│   └── migrations.py       # Schema versioning
+│
+└── scanner/                # Data ingestion layer
+    ├── base.py             # ScannerRegistry pattern
+    ├── adapters.py         # Source adapters
+    └── state.py            # Incremental scan state
 ```
 
-## Scope & Non-Goals
+### Interface Segregation (ISP)
 
-GMemory is intentionally minimal. Here's what it **does** and **doesn't** do:
+GMemory uses Protocol-based interfaces following the Interface Segregation Principle:
 
-| In Scope | Out of Scope |
-|----------|--------------|
-| CLI tool for OpenCode | Web UI / Dashboard |
-| Local SQLite storage | Cloud sync / Remote storage |
-| Local embeddings (FastEmbed) | External embedding APIs |
-| Manual distillation workflow | Automatic summarization |
-| Single-user local use | Multi-user / Collaboration |
-| Batch CLI operations | Background services / Daemons |
-| OpenCode session scanning | MCP server / Plugin hooks |
+```python
+# Segregated interfaces for specific responsibilities
+class MemoryReadPort(Protocol):    # Read operations
+class MemoryWritePort(Protocol):   # Write operations  
+class MemorySearchPort(Protocol):  # Search operations
+class WorkflowPort(Protocol):      # Session workflow
+class DiagnosticsPort(Protocol):   # Stats and health
 
-### Why Not MCP/Hooks?
+# Composite interface for backward compatibility
+class DatabasePort(
+    MemoryReadPort,
+    MemoryWritePort,
+    MemorySearchPort,
+    WorkflowPort,
+    DiagnosticsPort,
+    Protocol
+):
+    """Use specific ports for new code, DatabasePort for existing code."""
+    pass
+```
 
-GMemory focuses on being a reliable CLI tool that agents can invoke directly. Unlike claude-mem (hooks + worker service) or opencode-mem (plugin architecture), GMemory:
+### Dependency Injection
 
-- Has no runtime dependencies beyond Python + SQLite
-- Requires no background processes
-- Works offline without any network calls
-- Can be easily scripted and composed with other tools
+```python
+from gmemory.container import get_container
 
-### Comparison with Similar Tools
+# Get services via DI container
+container = get_container()
+db = container.get_database()       # DatabasePort
+embedder = container.get_embedder() # EmbedderPort
+config = container.get_config()     # ConfigPort
+
+# Testing: inject mocks
+container.set_database(mock_db)
+container.set_embedder(mock_embedder)
+```
+
+### Error Handling
+
+Structured error codes follow the pattern `GMEM-{CATEGORY}-{NUMBER}`:
+
+| Category | Range | Description |
+|----------|-------|-------------|
+| CFG | 001-099 | Configuration errors |
+| EMB | 100-199 | Embedding errors |
+| DB | 200-299 | Database errors |
+| SCN | 300-399 | Scanner errors |
+| CMD | 400-499 | Command errors |
+
+```python
+from gmemory.errors import DatabaseError, ErrorCode
+
+raise DatabaseError(
+    code=ErrorCode.DB_MEMORY_NOT_FOUND,
+    message="Memory not found",
+    details={"memory_id": "mem_123"}
+)
+```
+
+## Maintenance
+
+### Health Check
+
+```bash
+gmemory health              # Standard check
+gmemory health --verbose    # Detailed diagnostics
+gmemory health --quick      # Quick status
+```
+
+### Rebuild Indexes
+
+```bash
+gmemory reindex --target=embeddings --apply  # After model change
+gmemory reindex --target=fts --apply         # Rebuild FTS
+gmemory reindex --target=tags --apply        # Rebuild tags
+```
+
+### Database Maintenance
+
+```bash
+gmemory compact                    # VACUUM + ANALYZE
+gmemory purge --days=180 --apply   # Purge old memories
+gmemory lifecycle-stats            # View statistics
+```
+
+## Comparison with Similar Tools
 
 | Feature | GMemory | claude-mem | memex | opencode-mem |
 |---------|---------|------------|-------|--------------|
@@ -511,55 +471,36 @@ GMemory focuses on being a reliable CLI tool that agents can invoke directly. Un
 | Embeddings | Local (FastEmbed) | Local/Remote | Local (multiple) | Local (Xenova) |
 | Interface | CLI only | Hooks + Web UI | CLI + TUI | Plugin + Web UI |
 | Background | None | Worker service | Optional daemon | Plugin hooks |
-| Target | OpenCode | Claude Code | Claude/Codex/OpenCode | OpenCode |
 
-## Maintenance
+### Why GMemory?
 
-### Rebuild Indexes
+- **No runtime dependencies** beyond Python + SQLite
+- **No background processes** required
+- **Works offline** without network calls
+- **Easily scriptable** and composable with other tools
 
-```bash
-# After changing embedding model
-gmemory reindex --target=embeddings --apply
+## Scope & Non-Goals
 
-# Rebuild FTS index
-gmemory reindex --target=fts --apply
+| In Scope | Out of Scope |
+|----------|--------------|
+| CLI tool for OpenCode | Web UI / Dashboard |
+| Local SQLite storage | Cloud sync / Remote storage |
+| Local embeddings (FastEmbed) | External embedding APIs |
+| Manual distillation workflow | Automatic summarization |
+| Single-user local use | Multi-user / Collaboration |
+| Batch CLI operations | Background services / Daemons |
 
-# Rebuild tag index
-gmemory reindex --target=tags --apply
-
-# Dry run to see what would change
-gmemory reindex --target=all
-```
-
-### Check Health
-
-```bash
-# Comprehensive health check
-gmemory health
-
-# Detailed diagnostics
-gmemory health --verbose
-
-# Quick status check
-gmemory health --quick
-
-# Legacy diagnostics command
-gmemory diagnostics
-```
-
-Output includes: sqlite-vec status, dimension config, schema version, memory counts, index coverage, and recommendations.
-
-### Database Maintenance
+## Testing
 
 ```bash
-# Compact database (reclaim space)
-gmemory compact
+# Run all tests
+uv run pytest tests/ -v
 
-# Purge old memories
-gmemory purge --days=180 --apply
+# Quick test
+uv run pytest tests/ -q --tb=no
 
-# View lifecycle statistics
-gmemory lifecycle-stats
+# Specific module
+uv run pytest tests/test_search_modes.py -v
 ```
 
 ## License

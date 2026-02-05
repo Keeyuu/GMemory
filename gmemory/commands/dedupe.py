@@ -13,10 +13,10 @@ from typing import List, Optional, Dict, Any, Tuple, Set
 from dataclasses import dataclass
 from collections import defaultdict
 
-from gmemory.storage.database import MemoryDatabase
 from gmemory.storage.embedder import get_embedder, NoOpEmbedder, is_valid_embedding
 from gmemory.config import config
 from gmemory.models import Memory
+from gmemory.container import get_container
 
 
 # ============================================================================
@@ -269,45 +269,43 @@ def find_duplicates(
             "total_groups": 0,
         }
 
-    db = MemoryDatabase()
-    try:
-        # Get active memories
-        memories = db.get_active_memories(limit=limit, project_path=project_path)
+    container = get_container()
+    db = container.get_database()
 
-        if len(memories) < 2:
-            return {
-                "groups": [],
-                "total_groups": 0,
-                "analyzed_count": len(memories),
-                "strategy": strategy,
-                "message": "Not enough memories to find duplicates.",
-            }
+    # Get active memories
+    memories = db.get_active_memories(limit=limit, project_path=project_path)
 
-        # Use appropriate strategy
-        if strategy == "vector":
-            groups = _find_duplicates_vector(db, memories, threshold, min_group_size)
-        elif strategy == "simhash":
-            groups = _find_duplicates_simhash(memories, threshold, min_group_size)
-        elif strategy == "minhash":
-            groups = _find_duplicates_minhash(memories, threshold, min_group_size)
-        else:
-            groups = []
-
+    if len(memories) < 2:
         return {
-            "groups": [g.to_dict() for g in groups],
-            "total_groups": len(groups),
+            "groups": [],
+            "total_groups": 0,
             "analyzed_count": len(memories),
-            "threshold": threshold,
             "strategy": strategy,
-            "total_duplicates": sum(len(g.members) for g in groups),
+            "message": "Not enough memories to find duplicates.",
         }
 
-    finally:
-        db.close()
+    # Use appropriate strategy
+    if strategy == "vector":
+        groups = _find_duplicates_vector(db, memories, threshold, min_group_size)
+    elif strategy == "simhash":
+        groups = _find_duplicates_simhash(memories, threshold, min_group_size)
+    elif strategy == "minhash":
+        groups = _find_duplicates_minhash(memories, threshold, min_group_size)
+    else:
+        groups = []
+
+    return {
+        "groups": [g.to_dict() for g in groups],
+        "total_groups": len(groups),
+        "analyzed_count": len(memories),
+        "threshold": threshold,
+        "strategy": strategy,
+        "total_duplicates": sum(len(g.members) for g in groups),
+    }
 
 
 def _find_duplicates_vector(
-    db: MemoryDatabase,
+    db: Any,
     memories: List[Memory],
     threshold: float,
     min_group_size: int,
@@ -537,7 +535,7 @@ def _calculate_tag_overlap(all_tags: List[set]) -> float:
 
 
 def _find_similar_groups(
-    db: MemoryDatabase,
+    db: Any,
     memories: List[Memory],
     embeddings: Dict[str, List[float]],
     threshold: float,
@@ -660,113 +658,107 @@ def merge_memories(
     if len(memory_ids) < 2:
         return {"error": "Need at least 2 memory IDs to merge."}
 
-    db = MemoryDatabase()
-    try:
-        # Fetch all memories
-        memories: Dict[str, Memory] = {}
-        missing_ids: List[str] = []
+    container = get_container()
+    db = container.get_database()
 
-        for mem_id in memory_ids:
-            memory = db.get_memory(mem_id)
-            if memory:
-                memories[mem_id] = memory
-            else:
-                missing_ids.append(mem_id)
+    # Fetch all memories
+    memories: Dict[str, Memory] = {}
+    missing_ids: List[str] = []
 
-        if missing_ids:
-            return {
-                "error": f"Memory IDs not found: {missing_ids}",
-                "found": list(memories.keys()),
-            }
-
-        if len(memories) < 2:
-            return {"error": "Need at least 2 valid memories to merge."}
-
-        # Determine which memory to keep
-        if keep_id:
-            if keep_id not in memories:
-                return {"error": f"Keep ID '{keep_id}' not in provided memory IDs."}
-            keeper = memories[keep_id]
+    for mem_id in memory_ids:
+        memory = db.get_memory(mem_id)
+        if memory:
+            memories[mem_id] = memory
         else:
-            # Keep the oldest memory
-            keeper = min(memories.values(), key=lambda m: m.created_at)
+            missing_ids.append(mem_id)
 
-        # Calculate merged tags
-        if merge_tags:
-            all_tags = set()
-            for memory in memories.values():
-                all_tags.update(memory.tags)
-            merged_tags = sorted(all_tags)
-        else:
-            merged_tags = keeper.tags
-
-        # Determine memories to supersede
-        to_supersede = [m for m in memories.values() if m.id != keeper.id]
-
-        result = {
-            "dry_run": dry_run,
-            "keep": {
-                "id": keeper.id,
-                "preview": keeper.content[:100] + "..."
-                if len(keeper.content) > 100
-                else keeper.content,
-                "original_tags": keeper.tags,
-                "merged_tags": merged_tags,
-            },
-            "supersede": [
-                {
-                    "id": m.id,
-                    "preview": m.content[:100] + "..."
-                    if len(m.content) > 100
-                    else m.content,
-                    "tags": m.tags,
-                }
-                for m in to_supersede
-            ],
-            "supersede_count": len(to_supersede),
+    if missing_ids:
+        return {
+            "error": f"Memory IDs not found: {missing_ids}",
+            "found": list(memories.keys()),
         }
 
-        if dry_run:
-            result["message"] = "Dry run - no changes made. Remove --dry-run to apply."
-            return result
+    if len(memories) < 2:
+        return {"error": "Need at least 2 valid memories to merge."}
 
-        # Apply merge
-        embedder = None
-        try:
-            embedder = get_embedder()
-            has_embedder = not isinstance(embedder, NoOpEmbedder)
-        except Exception:
-            has_embedder = False
+    # Determine which memory to keep
+    if keep_id:
+        if keep_id not in memories:
+            return {"error": f"Keep ID '{keep_id}' not in provided memory IDs."}
+        keeper = memories[keep_id]
+    else:
+        # Keep the oldest memory
+        keeper = min(memories.values(), key=lambda m: m.created_at)
 
-        # Update keeper's tags if merging
-        if merge_tags and set(merged_tags) != set(keeper.tags):
-            keeper.tags = merged_tags
-            keeper.updated_at = int(time.time())
+    # Calculate merged tags
+    if merge_tags:
+        all_tags = set()
+        for memory in memories.values():
+            all_tags.update(memory.tags)
+        merged_tags = sorted(all_tags)
+    else:
+        merged_tags = keeper.tags
 
-            embedding = None
-            if has_embedder and embedder is not None:
-                try:
-                    embedding = embedder.embed(keeper.content)
-                except Exception:
-                    pass
+    # Determine memories to supersede
+    to_supersede = [m for m in memories.values() if m.id != keeper.id]
 
-            db.update_memory(keeper, embedding=embedding)
+    result: Dict[str, Any] = {
+        "dry_run": dry_run,
+        "keep": {
+            "id": keeper.id,
+            "preview": keeper.content[:100] + "..."
+            if len(keeper.content) > 100
+            else keeper.content,
+            "original_tags": keeper.tags,
+            "merged_tags": merged_tags,
+        },
+        "supersede": [
+            {
+                "id": m.id,
+                "preview": m.content[:100] + "..."
+                if len(m.content) > 100
+                else m.content,
+                "tags": m.tags,
+            }
+            for m in to_supersede
+        ],
+        "supersede_count": len(to_supersede),
+    }
 
-        # Supersede other memories
-        for memory in to_supersede:
-            db.conn.execute(
-                "UPDATE memories SET superseded_by = ?, updated_at = ? WHERE id = ?",
-                (keeper.id, int(time.time()), memory.id),
-            )
-        db.conn.commit()
-
-        result["message"] = f"Merged {len(to_supersede)} memories into {keeper.id}"
-        result["success"] = True
-
+    if dry_run:
+        result["message"] = "Dry run - no changes made. Remove --dry-run to apply."
         return result
 
-    finally:
-        db.close()
+    # Apply merge
+    embedder = None
+    try:
+        embedder = get_embedder()
+        has_embedder = not isinstance(embedder, NoOpEmbedder)
+    except Exception:
+        has_embedder = False
+
+    # Update keeper's tags if merging
+    if merge_tags and set(merged_tags) != set(keeper.tags):
+        keeper.tags = merged_tags
+        keeper.updated_at = int(time.time())
+
+        embedding = None
+        if has_embedder and embedder is not None:
+            try:
+                embedding = embedder.embed(keeper.content)
+            except Exception:
+                pass
+
+        db.update_memory(keeper, embedding=embedding)
+
+    # Supersede other memories
+    for memory in to_supersede:
+        db.mark_memory_superseded(memory.id, keeper.id)
+
+    result["message"] = f"Merged {len(to_supersede)} memories into {keeper.id}"
+    result["success"] = True
+
+    return result
 
 
 def auto_dedupe(

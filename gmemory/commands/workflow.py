@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from gmemory.commands.fetch import fetch_unprocessed_sessions
 from gmemory.commands.save import save_memory
 from gmemory.commands.mark import mark_session
+from gmemory.container import get_container
 
 
 def process_sessions(
@@ -102,7 +103,7 @@ def _get_backlog_stats(
     Returns:
         Dict with backlog statistics.
     """
-    from gmemory.storage.database import MemoryDatabase
+    container = get_container()
 
     stats: Dict[str, Any] = {
         "fetched": fetched,
@@ -111,39 +112,29 @@ def _get_backlog_stats(
     }
 
     try:
-        db = MemoryDatabase()
-        try:
-            # Get total processed sessions count
-            cursor = db.conn.execute(
-                "SELECT COUNT(*) FROM processed_sessions WHERE agent = ?",
-                (agent,),
-            )
-            stats["total_processed"] = cursor.fetchone()[0]
+        db = container.get_database()
+        # Get total processed sessions count
+        stats["total_processed"] = db.get_processed_session_count(agent)
 
-            # Get scan error count
-            cursor = db.conn.execute(
-                "SELECT COUNT(*) FROM scan_errors WHERE resolved = 0"
-            )
-            stats["unresolved_errors"] = cursor.fetchone()[0]
+        # Get scan error count
+        stats["unresolved_errors"] = db.get_unresolved_error_count()
 
-            # Estimate backlog size if has_more
-            if has_more:
-                # Fetch a larger sample to estimate
-                larger_result = fetch_unprocessed_sessions(limit=100, agent=agent)
-                larger_sessions = larger_result.get("sessions", [])
-                if len(larger_sessions) >= 100:
-                    stats["estimated_backlog"] = "100+"
-                    stats["backlog_warning"] = (
-                        "Large backlog detected. Consider batch processing or "
-                        "increasing limit with: gmemory process --limit=50"
-                    )
-                else:
-                    stats["estimated_backlog"] = len(larger_sessions)
+        # Estimate backlog size if has_more
+        if has_more:
+            # Fetch a larger sample to estimate
+            larger_result = fetch_unprocessed_sessions(limit=100, agent=agent)
+            larger_sessions = larger_result.get("sessions", [])
+            if len(larger_sessions) >= 100:
+                stats["estimated_backlog"] = "100+"
+                stats["backlog_warning"] = (
+                    "Large backlog detected. Consider batch processing or "
+                    "increasing limit with: gmemory process --limit=50"
+                )
             else:
-                stats["estimated_backlog"] = fetched
+                stats["estimated_backlog"] = len(larger_sessions)
+        else:
+            stats["estimated_backlog"] = fetched
 
-        finally:
-            db.close()
     except Exception:
         pass  # Non-critical, continue without stats
 
@@ -446,68 +437,62 @@ def get_scan_error_summary() -> Dict[str, Any]:
         - recent_errors: Most recent errors with details
         - suggestions: Recommended actions
     """
-    from gmemory.storage.database import MemoryDatabase
+    container = get_container()
+    db = container.get_database()
 
-    db = MemoryDatabase()
-    try:
-        # Get all unresolved errors
-        errors = db.get_scan_errors(limit=100, unresolved_only=True)
+    # Get all unresolved errors
+    errors = db.get_scan_errors(limit=100, unresolved_only=True)
 
-        if not errors:
-            return {
-                "total_errors": 0,
-                "status": "healthy",
-                "message": "No unresolved scan errors.",
-            }
-
-        # Group by error code
-        by_code: Dict[str, List[Dict[str, Any]]] = {}
-        for err in errors:
-            code = err.get("error_code") or "UNKNOWN"
-            if code not in by_code:
-                by_code[code] = []
-            by_code[code].append(err)
-
-        # Group by file path
-        by_file: Dict[str, int] = {}
-        for err in errors:
-            file_path = err.get("file_path") or "unknown"
-            # Truncate long paths
-            if len(file_path) > 50:
-                file_path = "..." + file_path[-47:]
-            by_file[file_path] = by_file.get(file_path, 0) + 1
-
-        # Generate suggestions based on error patterns
-        suggestions = _generate_error_suggestions(by_code, errors)
-
-        # Get recent errors with details
-        recent = errors[:5]
-        recent_formatted = [
-            {
-                "id": e.get("id"),
-                "error_code": e.get("error_code"),
-                "message": (e.get("error_message", "")[:100] + "...")
-                if len(e.get("error_message", "")) > 100
-                else e.get("error_message", ""),
-                "file": e.get("file_path", "")[-50:] if e.get("file_path") else None,
-                "session_id": e.get("session_id"),
-            }
-            for e in recent
-        ]
-
+    if not errors:
         return {
-            "total_errors": len(errors),
-            "status": "needs_attention" if len(errors) > 10 else "minor_issues",
-            "by_error_code": {code: len(errs) for code, errs in by_code.items()},
-            "by_file": dict(
-                sorted(by_file.items(), key=lambda x: x[1], reverse=True)[:10]
-            ),
-            "recent_errors": recent_formatted,
-            "suggestions": suggestions,
+            "total_errors": 0,
+            "status": "healthy",
+            "message": "No unresolved scan errors.",
         }
 
-    finally:
-        db.close()
+    # Group by error code
+    by_code: Dict[str, List[Dict[str, Any]]] = {}
+    for err in errors:
+        code = err.get("error_code") or "UNKNOWN"
+        if code not in by_code:
+            by_code[code] = []
+        by_code[code].append(err)
+
+    # Group by file path
+    by_file: Dict[str, int] = {}
+    for err in errors:
+        file_path = err.get("file_path") or "unknown"
+        # Truncate long paths
+        if len(file_path) > 50:
+            file_path = "..." + file_path[-47:]
+        by_file[file_path] = by_file.get(file_path, 0) + 1
+
+    # Generate suggestions based on error patterns
+    suggestions = _generate_error_suggestions(by_code, errors)
+
+    # Get recent errors with details
+    recent = errors[:5]
+    recent_formatted = [
+        {
+            "id": e.get("id"),
+            "error_code": e.get("error_code"),
+            "message": (e.get("error_message", "")[:100] + "...")
+            if len(e.get("error_message", "")) > 100
+            else e.get("error_message", ""),
+            "file": e.get("file_path", "")[-50:] if e.get("file_path") else None,
+            "session_id": e.get("session_id"),
+        }
+        for e in recent
+    ]
+
+    return {
+        "total_errors": len(errors),
+        "status": "needs_attention" if len(errors) > 10 else "minor_issues",
+        "by_error_code": {code: len(errs) for code, errs in by_code.items()},
+        "by_file": dict(sorted(by_file.items(), key=lambda x: x[1], reverse=True)[:10]),
+        "recent_errors": recent_formatted,
+        "suggestions": suggestions,
+    }
 
 
 def _generate_error_suggestions(
@@ -593,44 +578,40 @@ def batch_resolve_errors(
     Returns:
         Dict with resolution results.
     """
-    from gmemory.storage.database import MemoryDatabase
+    container = get_container()
+    db = container.get_database()
 
-    db = MemoryDatabase()
-    try:
-        if error_ids:
-            ids_to_resolve = error_ids
-        elif resolve_all:
-            errors = db.get_scan_errors(limit=1000, unresolved_only=True)
-            ids_to_resolve = [e["id"] for e in errors if e.get("id")]
-        else:
-            return {
-                "error": "Must specify error_ids or use resolve_all=True",
-            }
-
-        if not ids_to_resolve:
-            return {
-                "resolved": [],
-                "failed": [],
-                "dry_run": dry_run,
-                "summary": "No errors to resolve.",
-            }
-
-        if dry_run:
-            return {
-                "would_resolve": ids_to_resolve,
-                "count": len(ids_to_resolve),
-                "dry_run": True,
-                "summary": f"Would resolve {len(ids_to_resolve)} error(s).",
-                "hint": "Use --apply to actually resolve these errors.",
-            }
-
-        result = db.resolve_scan_errors(ids_to_resolve, note=note)
+    if error_ids:
+        ids_to_resolve = error_ids
+    elif resolve_all:
+        errors = db.get_scan_errors(limit=1000, unresolved_only=True)
+        ids_to_resolve = [e["id"] for e in errors if e.get("id")]
+    else:
         return {
-            "resolved": result.get("resolved", []),
-            "failed": result.get("failed", []),
-            "dry_run": False,
-            "summary": f"Resolved {len(result.get('resolved', []))} error(s), {len(result.get('failed', []))} failed.",
+            "error": "Must specify error_ids or use resolve_all=True",
         }
 
-    finally:
-        db.close()
+    if not ids_to_resolve:
+        return {
+            "resolved": [],
+            "failed": [],
+            "dry_run": dry_run,
+            "summary": "No errors to resolve.",
+        }
+
+    if dry_run:
+        return {
+            "would_resolve": ids_to_resolve,
+            "count": len(ids_to_resolve),
+            "dry_run": True,
+            "summary": f"Would resolve {len(ids_to_resolve)} error(s).",
+            "hint": "Use --apply to actually resolve these errors.",
+        }
+
+    result = db.resolve_scan_errors(ids_to_resolve, note=note)
+    return {
+        "resolved": result.get("resolved", []),
+        "failed": result.get("failed", []),
+        "dry_run": False,
+        "summary": f"Resolved {len(result.get('resolved', []))} error(s), {len(result.get('failed', []))} failed.",
+    }

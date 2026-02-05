@@ -249,12 +249,19 @@ class MemoryDatabase:
             logger.debug(f"Could not store tag embedding: {e}")
 
     def _has_tag_index(self) -> bool:
-        """Check if the vec_tags table exists and has data."""
+        """Check if the vec_tags table exists and has data (internal)."""
         try:
             cursor = self.conn.execute("SELECT COUNT(*) FROM vec_tags")
             return cursor.fetchone()[0] > 0
         except sqlite3.OperationalError:
             return False
+
+    def has_tag_index(self) -> bool:
+        """Check if the tag index exists and has data.
+
+        Public interface method for DatabasePort protocol.
+        """
+        return self._has_tag_index()
 
     def search_tags(
         self, tag_embedding: List[float], limit: int = 50
@@ -1008,3 +1015,267 @@ class MemoryDatabase:
 
     def close(self):
         self.conn.close()
+
+    # ========================================================================
+    # Extended methods for workflow/quick/dedupe commands (DatabasePort)
+    # ========================================================================
+
+    def is_session_processed(self, agent: str, session_id: str) -> bool:
+        """Check if a session has been processed by a specific agent."""
+        cursor = self.conn.execute(
+            "SELECT 1 FROM processed_sessions WHERE agent = ? AND session_id = ?",
+            (agent, session_id),
+        )
+        return cursor.fetchone() is not None
+
+    def mark_session_processed(
+        self,
+        agent: str,
+        session_id: str,
+        status: str = "processed",
+        reason: Optional[str] = None,
+    ) -> None:
+        """Mark a session as processed."""
+        processed_at = int(time.time())
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT OR REPLACE INTO processed_sessions (session_id, agent, processed_at)
+                VALUES (?, ?, ?)
+                """,
+                (session_id, agent, processed_at),
+            )
+
+    def get_processed_session_count(self, agent: str) -> int:
+        """Get count of processed sessions for an agent."""
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM processed_sessions WHERE agent = ?",
+            (agent,),
+        )
+        return cursor.fetchone()[0]
+
+    def get_unresolved_error_count(self) -> int:
+        """Get count of unresolved scan errors."""
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM scan_errors WHERE resolved = 0"
+        )
+        return cursor.fetchone()[0]
+
+    def get_recent_memories(
+        self,
+        days: int = 7,
+        limit: int = 10,
+        project_path: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get memories updated within the last N days.
+
+        Args:
+            days: Look back N days.
+            limit: Maximum results.
+            project_path: Optional project filter.
+            tags: Optional tag filter (memory must have all specified tags).
+
+        Returns:
+            List of memory dicts with preview and metadata.
+        """
+        cutoff = time.time() - (days * 24 * 3600)
+
+        query = """
+            SELECT id, content, tags, importance, project_path, 
+                   created_at, updated_at
+            FROM memories 
+            WHERE updated_at >= ?
+            AND (superseded_by IS NULL OR superseded_by = '')
+        """
+        params: List[Any] = [cutoff]
+
+        if project_path:
+            query += " AND project_path = ?"
+            params.append(project_path)
+
+        if tags:
+            for tag in tags:
+                query += " AND tags LIKE ?"
+                params.append(f"%{tag}%")
+
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
+
+        cursor = self.conn.execute(query, params)
+        rows = cursor.fetchall()
+
+        memories = []
+        for row in rows:
+            content = row["content"]
+            memories.append(
+                {
+                    "id": row["id"],
+                    "preview": content[:150] + "..." if len(content) > 150 else content,
+                    "tags": row["tags"].split(",") if row["tags"] else [],
+                    "importance": row["importance"],
+                    "project_path": row["project_path"],
+                    "updated_at": row["updated_at"],
+                    "age_hours": round((time.time() - row["updated_at"]) / 3600, 1),
+                }
+            )
+
+        return memories
+
+    def get_today_stats(self) -> Dict[str, Any]:
+        """Get today's activity statistics.
+
+        Returns:
+            Dict with today's new/updated memories, active sessions, and recent items.
+        """
+        now = time.time()
+        today_start = now - (now % 86400)  # Round down to midnight UTC
+
+        # Count today's new memories
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM memories WHERE created_at >= ?",
+            (today_start,),
+        )
+        new_memories = cursor.fetchone()[0]
+
+        # Count today's updated memories (excluding new ones)
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM memories WHERE updated_at >= ? AND created_at < ?",
+            (today_start, today_start),
+        )
+        updated_memories = cursor.fetchone()[0]
+
+        # Count today's active sessions
+        cursor = self.conn.execute(
+            "SELECT COUNT(DISTINCT source_session_id) FROM memories WHERE created_at >= ?",
+            (today_start,),
+        )
+        active_sessions = cursor.fetchone()[0]
+
+        # Get recent memories (last 5)
+        cursor = self.conn.execute(
+            """
+            SELECT id, content, tags, updated_at 
+            FROM memories 
+            WHERE updated_at >= ?
+            ORDER BY updated_at DESC 
+            LIMIT 5
+            """,
+            (today_start,),
+        )
+
+        recent = []
+        for row in cursor:
+            content = row["content"]
+            recent.append(
+                {
+                    "id": row["id"],
+                    "preview": content[:100] + "..." if len(content) > 100 else content,
+                    "tags": row["tags"].split(",") if row["tags"] else [],
+                }
+            )
+
+        # Get total stats
+        cursor = self.conn.execute("SELECT COUNT(*) FROM memories")
+        total_memories = cursor.fetchone()[0]
+
+        return {
+            "date": time.strftime("%Y-%m-%d"),
+            "today": {
+                "new_memories": new_memories,
+                "updated_memories": updated_memories,
+                "active_sessions": active_sessions,
+            },
+            "recent_memories": recent,
+            "total_memories": total_memories,
+        }
+
+    def find_memories_by_tag(
+        self,
+        tag: str,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Find memories containing a specific tag.
+
+        Args:
+            tag: Tag to search for.
+            limit: Maximum results.
+
+        Returns:
+            List of memory dicts with content and metadata.
+        """
+        cursor = self.conn.execute(
+            """
+            SELECT id, content, tags, importance, project_path, updated_at
+            FROM memories
+            WHERE tags LIKE ?
+            AND (superseded_by IS NULL OR superseded_by = '')
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (f"%{tag}%", limit),
+        )
+
+        memories = []
+        for row in cursor:
+            content = row["content"]
+            memories.append(
+                {
+                    "id": row["id"],
+                    "content": content,
+                    "preview": content[:150] + "..." if len(content) > 150 else content,
+                    "tags": row["tags"].split(",") if row["tags"] else [],
+                    "importance": row["importance"],
+                    "project_path": row["project_path"],
+                    "updated_at": row["updated_at"],
+                }
+            )
+
+        return memories
+
+    def get_all_tags(self, limit: int = 50) -> List[Tuple[str, int]]:
+        """Get all unique tags with their counts.
+
+        Args:
+            limit: Maximum tags to return.
+
+        Returns:
+            List of (tag, count) tuples sorted by count descending.
+        """
+        cursor = self.conn.execute("""
+            SELECT tags FROM memories 
+            WHERE tags IS NOT NULL AND tags != ''
+            AND (superseded_by IS NULL OR superseded_by = '')
+        """)
+
+        tag_counts: Dict[str, int] = {}
+        for row in cursor:
+            tags = row["tags"].split(",")
+            for tag in tags:
+                tag = tag.strip()
+                if tag:
+                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+        # Sort by count descending, then alphabetically
+        sorted_tags = sorted(tag_counts.items(), key=lambda x: (-x[1], x[0]))[:limit]
+        return sorted_tags
+
+    def mark_memory_superseded(
+        self,
+        memory_id: str,
+        superseded_by: str,
+    ) -> None:
+        """Mark a memory as superseded by another.
+
+        This is a simple method that only updates the superseded_by field.
+        Use supersede_memory() if you also need to add a new replacement memory.
+
+        Args:
+            memory_id: ID of the memory to mark as superseded.
+            superseded_by: ID of the memory that supersedes it.
+        """
+        with self.conn:
+            self.conn.execute(
+                "UPDATE memories SET superseded_by = ?, updated_at = ? WHERE id = ?",
+                (superseded_by, int(time.time()), memory_id),
+            )
