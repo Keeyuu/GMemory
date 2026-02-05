@@ -1,15 +1,8 @@
+import json
 import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-try:
-    import tomllib
-except ImportError:
-    try:
-        import tomli as tomllib
-    except ImportError:
-        tomllib = None
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +92,7 @@ CONFIG_TEMPLATES: Dict[str, Dict[str, Any]] = {
 class Config:
     """
     Configuration manager for GMemory.
-    Supports loading from default values, in-repo config.toml, and ~/.gmemory/config.toml.
+    Supports loading from default values, in-repo config.json, and ~/.gmemory/config.json.
     Also supports project-specific configuration overrides.
     """
 
@@ -169,13 +162,13 @@ class Config:
 
     def load(self) -> None:
         """Loads configuration from multiple sources in priority order."""
-        # 1. Look for config.toml in repo root
-        repo_config = Path("config.toml")
+        # 1. Look for config.json in repo root
+        repo_config = Path("config.json")
         if repo_config.exists():
             self._update_from_file(repo_config)
 
-        # 2. Look for config.toml in ~/.gmemory/config.toml
-        home_config = Path.home() / ".gmemory" / "config.toml"
+        # 2. Look for config.json in ~/.gmemory/config.json
+        home_config = Path.home() / ".gmemory" / "config.json"
         if home_config.exists():
             self._update_from_file(home_config)
 
@@ -186,26 +179,22 @@ class Config:
     def _load_project_config(self, project_path: str) -> None:
         """Load project-specific configuration overrides.
 
-        Looks for .gmemory/config.toml in the project directory.
+        Looks for .gmemory/config.json in the project directory.
         """
         project_dir = Path(project_path)
         if not project_dir.is_dir():
             project_dir = project_dir.parent
 
-        project_config = project_dir / ".gmemory" / "config.toml"
+        project_config = project_dir / ".gmemory" / "config.json"
         if project_config.exists():
             self._update_from_file(project_config)
             self._project_config_loaded = True
             logger.debug(f"Loaded project config from {project_config}")
 
     def _update_from_file(self, path: Path) -> None:
-        if tomllib is None:
-            logger.debug("TOML parser not available, skipping config file")
-            return
-
         try:
-            with open(path, "rb") as f:
-                data = tomllib.load(f)
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
                 self._deep_update(self._config, data)
                 logger.debug(f"Loaded config from {path}")
         except Exception as e:
@@ -439,35 +428,17 @@ def generate_config_file(
             "available": list(CONFIG_TEMPLATES.keys()),
         }
 
-    # Generate TOML content
-    lines = [
-        f"# GMemory Configuration",
-        f"# Generated from template: {template}",
-        f"# {tpl.get('description', '')}",
-        "",
-    ]
+    # Build config dict (exclude description)
+    config_data = {k: v for k, v in tpl.items() if k != "description"}
 
-    def format_section(data: Dict[str, Any], prefix: str = "") -> List[str]:
-        result = []
-        for key, value in data.items():
-            if key == "description":
-                continue
-            full_key = f"{prefix}.{key}" if prefix else key
-            if isinstance(value, dict):
-                result.append(f"[{full_key}]")
-                for k, v in value.items():
-                    if isinstance(v, dict):
-                        # Nested section
-                        result.extend(format_section({k: v}, full_key))
-                    else:
-                        result.append(f"{k} = {_format_toml_value(v)}")
-                result.append("")
-            else:
-                result.append(f"{key} = {_format_toml_value(value)}")
-        return result
+    # Generate JSON content with comments as a header field
+    output_data = {
+        "_comment": f"GMemory Configuration - Generated from template: {template}",
+        "_description": tpl.get("description", ""),
+        **config_data,
+    }
 
-    lines.extend(format_section(tpl))
-    content = "\n".join(lines)
+    content = json.dumps(output_data, indent=2, ensure_ascii=False)
 
     if output_path:
         try:
@@ -490,20 +461,6 @@ def generate_config_file(
     }
 
 
-def _format_toml_value(value: Any) -> str:
-    """Format a value for TOML output."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    elif isinstance(value, str):
-        return f'"{value}"'
-    elif isinstance(value, (int, float)):
-        return str(value)
-    elif value is None:
-        return '""'
-    else:
-        return f'"{value}"'
-
-
 def init_project_config(
     project_path: str,
     template: str = "default",
@@ -511,7 +468,7 @@ def init_project_config(
 ) -> Dict[str, Any]:
     """Initialize project-specific configuration.
 
-    Creates a .gmemory/config.toml in the project directory.
+    Creates a .gmemory/config.json in the project directory.
 
     Args:
         project_path: Path to the project directory.
@@ -526,7 +483,7 @@ def init_project_config(
         return {"error": f"Not a directory: {project_path}"}
 
     config_dir = project_dir / ".gmemory"
-    config_file = config_dir / "config.toml"
+    config_file = config_dir / "config.json"
 
     if config_file.exists() and not force:
         return {

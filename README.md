@@ -247,48 +247,53 @@ gmemory auto-dedupe --apply             # Execute
 
 ### Config File
 
-Default: `~/.gmemory/config.toml`
+Default: `~/.gmemory/config.json`
 
-```toml
-[storage]
-db_path = "~/.gmemory/data.db"
-
-[embedding]
-provider = "fastembed"
-model = "nomic"
-dimension = 768
-cache_dir = "~/.gmemory/models"
-active_profile = "nomic"
-
-[embedding.profiles.nomic]
-provider = "fastembed"
-model = "nomic"
-dimension = 768
-
-[embedding.profiles.bge-small]
-provider = "fastembed"
-model = "bge-small"
-dimension = 384
-
-[scanner]
-default_agent = "opencode"
-
-[search]
-default_mode = "hybrid"
-default_profile = "balanced"
-default_limit = 10
-vector_weight = 0.7
-fts_weight = 0.3
-recency_weight = 0.0
-recency_window_days = 90
-min_score_threshold = 0.2
-use_tag_index = false
-tag_weight = 0.3
-
-[lifecycle]
-retention_days = 0              # 0 = no auto-purge
-archive_before_purge = true
-auto_compact_threshold = 1000
+```json
+{
+  "storage": {
+    "db_path": "~/.gmemory/data.db"
+  },
+  "embedding": {
+    "provider": "fastembed",
+    "model": "nomic",
+    "dimension": 768,
+    "cache_dir": "~/.gmemory/models",
+    "active_profile": "nomic",
+    "profiles": {
+      "nomic": {
+        "provider": "fastembed",
+        "model": "nomic",
+        "dimension": 768
+      },
+      "bge-small": {
+        "provider": "fastembed",
+        "model": "bge-small",
+        "dimension": 384
+      }
+    }
+  },
+  "scanner": {
+    "default_agent": "opencode"
+  },
+  "search": {
+    "default_mode": "hybrid",
+    "default_profile": "balanced",
+    "default_limit": 10,
+    "vector_weight": 0.7,
+    "fts_weight": 0.3,
+    "recency_weight": 0.0,
+    "recency_window_days": 90,
+    "min_score_threshold": 0.2,
+    "use_tag_index": false,
+    "tag_weight": 0.3
+  },
+  "lifecycle": {
+    "retention_days": 0,
+    "archive_before_purge": true,
+    "auto_compact_threshold": 1000
+  }
+}
 ```
 
 ### Configuration Templates
@@ -303,7 +308,7 @@ auto_compact_threshold = 1000
 
 ```bash
 # Generate config from template
-gmemory config-generate minimal -o config.toml
+gmemory config-generate minimal -o config.json
 
 # Initialize project-level config
 gmemory config-init --template=project-isolated
@@ -311,7 +316,7 @@ gmemory config-init --template=project-isolated
 
 ### Project-Level Configuration
 
-Create `.gmemory/config.toml` in your project root to override global settings.
+Create `.gmemory/config.json` in your project root to override global settings.
 
 ## Source Adapters
 

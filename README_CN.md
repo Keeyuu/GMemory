@@ -247,48 +247,53 @@ gmemory auto-dedupe --apply             # 执行
 
 ### 配置文件
 
-默认位置：`~/.gmemory/config.toml`
+默认位置：`~/.gmemory/config.json`
 
-```toml
-[storage]
-db_path = "~/.gmemory/data.db"
-
-[embedding]
-provider = "fastembed"
-model = "nomic"
-dimension = 768
-cache_dir = "~/.gmemory/models"
-active_profile = "nomic"
-
-[embedding.profiles.nomic]
-provider = "fastembed"
-model = "nomic"
-dimension = 768
-
-[embedding.profiles.bge-small]
-provider = "fastembed"
-model = "bge-small"
-dimension = 384
-
-[scanner]
-default_agent = "opencode"
-
-[search]
-default_mode = "hybrid"
-default_profile = "balanced"
-default_limit = 10
-vector_weight = 0.7
-fts_weight = 0.3
-recency_weight = 0.0
-recency_window_days = 90
-min_score_threshold = 0.2
-use_tag_index = false
-tag_weight = 0.3
-
-[lifecycle]
-retention_days = 0              # 0 = 不自动清理
-archive_before_purge = true
-auto_compact_threshold = 1000
+```json
+{
+  "storage": {
+    "db_path": "~/.gmemory/data.db"
+  },
+  "embedding": {
+    "provider": "fastembed",
+    "model": "nomic",
+    "dimension": 768,
+    "cache_dir": "~/.gmemory/models",
+    "active_profile": "nomic",
+    "profiles": {
+      "nomic": {
+        "provider": "fastembed",
+        "model": "nomic",
+        "dimension": 768
+      },
+      "bge-small": {
+        "provider": "fastembed",
+        "model": "bge-small",
+        "dimension": 384
+      }
+    }
+  },
+  "scanner": {
+    "default_agent": "opencode"
+  },
+  "search": {
+    "default_mode": "hybrid",
+    "default_profile": "balanced",
+    "default_limit": 10,
+    "vector_weight": 0.7,
+    "fts_weight": 0.3,
+    "recency_weight": 0.0,
+    "recency_window_days": 90,
+    "min_score_threshold": 0.2,
+    "use_tag_index": false,
+    "tag_weight": 0.3
+  },
+  "lifecycle": {
+    "retention_days": 0,
+    "archive_before_purge": true,
+    "auto_compact_threshold": 1000
+  }
+}
 ```
 
 ### 配置模板
@@ -303,7 +308,7 @@ auto_compact_threshold = 1000
 
 ```bash
 # 从模板生成配置
-gmemory config-generate minimal -o config.toml
+gmemory config-generate minimal -o config.json
 
 # 初始化项目级配置
 gmemory config-init --template=project-isolated
@@ -311,7 +316,7 @@ gmemory config-init --template=project-isolated
 
 ### 项目级配置
 
-在项目根目录创建 `.gmemory/config.toml` 以覆盖全局设置。
+在项目根目录创建 `.gmemory/config.json` 以覆盖全局设置。
 
 ## 数据源适配器
 
