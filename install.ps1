@@ -30,18 +30,12 @@ Write-Host ""
 
 # Detect package manager
 $UseUv = $false
-$UsePip = $false
 if (Get-Command uv -ErrorAction SilentlyContinue) {
     $UseUv = $true
     Write-Host "[OK] Found uv package manager" -ForegroundColor Green
-}
-if (Get-Command pip -ErrorAction SilentlyContinue) {
-    $UsePip = $true
-    if (-not $UseUv) {
-        Write-Host "[OK] Found pip package manager" -ForegroundColor Green
-    }
-}
-if (-not $UseUv -and -not $UsePip) {
+} elseif (Get-Command pip -ErrorAction SilentlyContinue) {
+    Write-Host "[OK] Found pip package manager" -ForegroundColor Green
+} else {
     Write-Host "[ERROR] Neither uv nor pip found. Please install Python first." -ForegroundColor Red
     exit 1
 }
@@ -72,16 +66,16 @@ function Install-Modules {
 
     try {
         if ($UseUv) {
-            # Use 'uv tool install' for global CLI tool installation
-            # This installs to ~/.local/bin which is in PATH, avoiding venv isolation issues
-            # Use Python 3.12 to ensure compatibility with onnxruntime (fastembed dependency)
             if ($Force) {
                 Write-Host "[INFO] Force reinstall requested" -ForegroundColor Yellow
-                uv tool uninstall gmemory 2>$null
+                uv pip uninstall gmemory -q 2>$null
             }
-            Write-Host "[INFO] Installing with: uv tool install -e $ScriptDir --python 3.12 --force" -ForegroundColor Yellow
-            uv tool install -e "$ScriptDir" --python 3.12 --force
-        } elseif ($UsePip) {
+            if ($Dev) {
+                uv pip install -e "$ScriptDir" --reinstall
+            } else {
+                uv pip install -e "$ScriptDir" --reinstall
+            }
+        } else {
             if ($Force) {
                 Write-Host "[INFO] Force reinstall requested" -ForegroundColor Yellow
                 pip uninstall gmemory -y -q 2>$null

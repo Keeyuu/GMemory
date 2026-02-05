@@ -79,26 +79,17 @@ echo -e "${YELLOW}[INFO] Installing from: $SCRIPT_DIR${NC}"
 
 # Detect package manager
 USE_UV=false
-USE_PIP=false
 PIP_CMD=""
 if command -v uv &> /dev/null; then
     USE_UV=true
     echo -e "${GREEN}[OK] Found uv package manager${NC}"
-fi
-if command -v pip3 &> /dev/null; then
-    USE_PIP=true
+elif command -v pip3 &> /dev/null; then
     PIP_CMD="pip3"
-    if ! $USE_UV; then
-        echo -e "${GREEN}[OK] Found pip3 package manager${NC}"
-    fi
+    echo -e "${GREEN}[OK] Found pip3 package manager${NC}"
 elif command -v pip &> /dev/null; then
-    USE_PIP=true
     PIP_CMD="pip"
-    if ! $USE_UV; then
-        echo -e "${GREEN}[OK] Found pip package manager${NC}"
-    fi
-fi
-if ! $USE_UV && ! $USE_PIP; then
+    echo -e "${GREEN}[OK] Found pip package manager${NC}"
+else
     echo -e "${RED}[ERROR] Neither uv nor pip found. Please install Python first.${NC}"
     exit 1
 fi
@@ -126,21 +117,22 @@ install_modules() {
         echo -e "${CYAN}Step 1: Installing GMemory...${NC}"
     fi
 
-    if $USE_UV; then
-        # Use 'uv tool install' for global CLI tool installation
-        # This installs to ~/.local/bin which is in PATH, avoiding venv isolation issues
-        # Use Python 3.12 to ensure compatibility with onnxruntime (fastembed dependency)
-        if $FORCE_MODE; then
-            echo -e "${YELLOW}[INFO] Force reinstall requested${NC}"
-            uv tool uninstall gmemory 2>/dev/null || true
-        fi
-        echo -e "${YELLOW}[INFO] Installing with: uv tool install -e $SCRIPT_DIR --python 3.12 --force${NC}"
-        uv tool install -e "$SCRIPT_DIR" --python 3.12 --force
-    elif $USE_PIP; then
-        if $FORCE_MODE; then
-            echo -e "${YELLOW}[INFO] Force reinstall requested${NC}"
+    if $FORCE_MODE; then
+        echo -e "${YELLOW}[INFO] Force reinstall requested${NC}"
+        if $USE_UV; then
+            uv pip uninstall gmemory -q 2>/dev/null || true
+        else
             $PIP_CMD uninstall gmemory -y -q 2>/dev/null || true
         fi
+    fi
+
+    if $USE_UV; then
+        if $DEV_MODE; then
+            uv pip install -e "$SCRIPT_DIR" --reinstall
+        else
+            uv pip install -e "$SCRIPT_DIR" --reinstall
+        fi
+    else
         if $DEV_MODE; then
             $PIP_CMD install -e "$SCRIPT_DIR[dev]" --upgrade
         else
