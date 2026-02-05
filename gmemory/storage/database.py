@@ -1108,11 +1108,18 @@ class MemoryDatabase:
         memories = []
         for row in rows:
             content = row["content"]
+            # Parse tags from JSON array
+            try:
+                tags = json.loads(row["tags"]) if row["tags"] else []
+            except (json.JSONDecodeError, TypeError):
+                tags = (
+                    [t.strip() for t in row["tags"].split(",")] if row["tags"] else []
+                )
             memories.append(
                 {
                     "id": row["id"],
                     "preview": content[:150] + "..." if len(content) > 150 else content,
-                    "tags": row["tags"].split(",") if row["tags"] else [],
+                    "tags": tags,
                     "importance": row["importance"],
                     "project_path": row["project_path"],
                     "updated_at": row["updated_at"],
@@ -1167,11 +1174,18 @@ class MemoryDatabase:
         recent = []
         for row in cursor:
             content = row["content"]
+            # Parse tags from JSON array
+            try:
+                tags = json.loads(row["tags"]) if row["tags"] else []
+            except (json.JSONDecodeError, TypeError):
+                tags = (
+                    [t.strip() for t in row["tags"].split(",")] if row["tags"] else []
+                )
             recent.append(
                 {
                     "id": row["id"],
                     "preview": content[:100] + "..." if len(content) > 100 else content,
-                    "tags": row["tags"].split(",") if row["tags"] else [],
+                    "tags": tags,
                 }
             )
 
@@ -1219,12 +1233,19 @@ class MemoryDatabase:
         memories = []
         for row in cursor:
             content = row["content"]
+            # Parse tags from JSON array
+            try:
+                tags = json.loads(row["tags"]) if row["tags"] else []
+            except (json.JSONDecodeError, TypeError):
+                tags = (
+                    [t.strip() for t in row["tags"].split(",")] if row["tags"] else []
+                )
             memories.append(
                 {
                     "id": row["id"],
                     "content": content,
                     "preview": content[:150] + "..." if len(content) > 150 else content,
-                    "tags": row["tags"].split(",") if row["tags"] else [],
+                    "tags": tags,
                     "importance": row["importance"],
                     "project_path": row["project_path"],
                     "updated_at": row["updated_at"],
@@ -1250,9 +1271,13 @@ class MemoryDatabase:
 
         tag_counts: Dict[str, int] = {}
         for row in cursor:
-            tags = row["tags"].split(",")
+            try:
+                tags = json.loads(row["tags"])
+            except (json.JSONDecodeError, TypeError):
+                # Fallback for legacy comma-separated format
+                tags = [t.strip() for t in row["tags"].split(",")]
             for tag in tags:
-                tag = tag.strip()
+                tag = tag.strip() if isinstance(tag, str) else str(tag)
                 if tag:
                     tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
