@@ -131,6 +131,12 @@ gmemory add --content "New better approach" --tags "..." --importance "high"
 gmemory stats
 ```
 
+### Mark Sessions (with reason)
+```bash
+gmemory mark --session-id "ses_abc123" --status=skipped --reason="no reusable insight"
+gmemory mark-all --reason="bulk cleanup" --apply
+```
+
 ## Self-Evolution Workflow
 
 ### Pattern 1: Discover & Correct

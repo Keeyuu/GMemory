@@ -16,7 +16,7 @@ from gmemory.storage.migrations import apply_migrations, get_migration_status
 logger = logging.getLogger(__name__)
 
 # Schema version for migration tracking
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class MemoryDatabase:
@@ -156,6 +156,8 @@ class MemoryDatabase:
                     session_id TEXT,
                     agent TEXT,
                     processed_at INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'processed',
+                    reason TEXT,
                     PRIMARY KEY (agent, session_id)
                 );
             """)
@@ -714,10 +716,17 @@ class MemoryDatabase:
         with self.conn:
             self.conn.execute(
                 """
-                INSERT OR REPLACE INTO processed_sessions (session_id, agent, processed_at)
-                VALUES (?, ?, ?)
+                INSERT OR REPLACE INTO processed_sessions (
+                    session_id, agent, processed_at, status, reason
+                ) VALUES (?, ?, ?, ?, ?)
             """,
-                (session.session_id, session.agent, session.processed_at),
+                (
+                    session.session_id,
+                    session.agent,
+                    session.processed_at,
+                    session.status,
+                    session.reason,
+                ),
             )
 
     def start_scan_run(
@@ -1040,10 +1049,11 @@ class MemoryDatabase:
         with self.conn:
             self.conn.execute(
                 """
-                INSERT OR REPLACE INTO processed_sessions (session_id, agent, processed_at)
-                VALUES (?, ?, ?)
+                INSERT OR REPLACE INTO processed_sessions (
+                    session_id, agent, processed_at, status, reason
+                ) VALUES (?, ?, ?, ?, ?)
                 """,
-                (session_id, agent, processed_at),
+                (session_id, agent, processed_at, status, reason),
             )
 
     def get_processed_session_count(self, agent: str) -> int:
@@ -1060,6 +1070,27 @@ class MemoryDatabase:
             "SELECT COUNT(*) FROM scan_errors WHERE resolved = 0"
         )
         return cursor.fetchone()[0]
+
+    def delete_processed_sessions(self, agent: str, session_ids: List[str]) -> int:
+        """Delete processed session records for an agent.
+
+        Args:
+            agent: Agent identifier.
+            session_ids: Session IDs to delete.
+
+        Returns:
+            Number of deleted rows.
+        """
+        deleted = 0
+        with self.conn:
+            for session_id in session_ids:
+                cursor = self.conn.execute(
+                    "DELETE FROM processed_sessions WHERE agent = ? AND session_id = ?",
+                    (agent, session_id),
+                )
+                if cursor.rowcount > 0:
+                    deleted += cursor.rowcount
+        return deleted
 
     def get_recent_memories(
         self,

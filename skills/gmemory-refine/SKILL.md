@@ -82,6 +82,10 @@ Refine Agent history sessions into reusable memories AND maintain memory quality
 3. **save** - Save memory (auto-marks session as processed)
 4. **repeat** - If `has_more=true`, continue; otherwise done
 
+### Batch Skip Guardrail
+- Batch skip MUST include a non-empty reason and requires `--apply`.
+- If skipping without saving, prefer `mark` with `--status=skipped --reason=...`.
+
 ## Commands
 
 ### Fetch Unprocessed Sessions
@@ -102,12 +106,12 @@ gmemory save \
 
 ### Mark Without Saving (no valuable info)
 ```bash
-gmemory mark --session-id "ses_abc123"
+gmemory mark --session-id "ses_abc123" --status=skipped --reason="no reusable insight"
 ```
 
 ### Batch Mark Multiple Sessions
 ```bash
-gmemory mark-all --status=skipped --reason="bulk cleanup"
+gmemory mark-all --reason="bulk cleanup" --apply
 ```
 
 ### Update Existing Memory (CRITICAL for evolution)
@@ -236,11 +240,12 @@ Scenario: User corrects the agent
 8. **Learn from mistakes** - Failures are valuable learning opportunities
 9. **Consolidate periodically** - Keep memory store clean and useful
 10. **Proactively suggest** - Don't wait to be asked, offer to save/update
+11. **Never batch skip without reason** - Use mark-all only with explicit reason and --apply
 
 ## Tips
 - Focus on **reusable** insights, not session-specific details
 - Use stable tags (technology names, patterns) not ephemeral ones
-- Mark sessions without value to avoid re-processing
+- Mark sessions without value to avoid re-processing (always include reason)
 - Use `gmemory backlog` to check progress
 - **Proactively offer** to save insights after significant work
 - **Proactively ask** about corrections when memories fail

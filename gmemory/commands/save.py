@@ -17,6 +17,7 @@ def save_memory(
     project_path: Optional[str] = None,
     project_name: Optional[str] = None,
     require_embedding: bool = True,
+    skip_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Save a distilled memory and mark the source session as processed.
@@ -31,6 +32,7 @@ def save_memory(
         project_path: Path to the project.
         project_name: Name of the project.
         require_embedding: If True, fail when embedding is unavailable. Defaults to True.
+        skip_reason: Reason to record when session is marked as processed by save.
 
     Returns:
         Dict containing:
@@ -116,6 +118,8 @@ def save_memory(
             agent=agent,
             session_id=session_id,
             processed_at=current_time,
+            status="processed",
+            reason=skip_reason,
         )
         db.add_processed_session(processed_session)
 

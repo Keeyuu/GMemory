@@ -60,10 +60,12 @@ def register_core_commands(cli: click.Group) -> None:
     @click.option(
         "--session-id", required=True, help="Session ID to mark as processed."
     )
+    @click.option("--status", default="processed", help="Processing status.")
+    @click.option("--reason", help="Reason for marking.")
     @handle_cli_error
-    def mark(session_id):
+    def mark(session_id, status, reason):
         """Mark a session as processed without saving a memory."""
-        return mark_session(session_id=session_id)
+        return mark_session(session_id=session_id, status=status, reason=reason)
 
     @cli.command()
     @click.argument("query")

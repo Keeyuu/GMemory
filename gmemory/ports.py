@@ -193,6 +193,10 @@ class WorkflowPort(Protocol):
         """Get count of unresolved scan errors."""
         ...
 
+    def delete_processed_sessions(self, agent: str, session_ids: List[str]) -> int:
+        """Delete processed session records for an agent."""
+        ...
+
     def get_scan_errors(
         self,
         limit: int = 100,

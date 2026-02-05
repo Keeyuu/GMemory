@@ -11,6 +11,7 @@ from gmemory.commands.workflow import (
     mark_all_sessions,
     get_scan_error_summary,
     batch_resolve_errors,
+    unmark_sessions,
 )
 from gmemory.commands.session_report import get_session_report, get_session_detail
 from gmemory.errors import CommandError, ErrorCode
@@ -34,11 +35,14 @@ def register_workflow_commands(cli: click.Group) -> None:
         "--dry-run", is_flag=True, default=True, help="Preview what would be marked."
     )
     @click.option("--apply", is_flag=True, help="Actually mark sessions.")
+    @click.option("--reason", help="Reason for batch skipping sessions.")
     @cli_command(indent=2)
-    def mark_all_cmd(agent, limit, dry_run, apply):
+    def mark_all_cmd(agent, limit, dry_run, apply, reason):
         """Mark multiple unprocessed sessions as processed (batch skip)."""
         effective_dry_run = not apply
-        return mark_all_sessions(agent=agent, limit=limit, dry_run=effective_dry_run)
+        return mark_all_sessions(
+            agent=agent, limit=limit, dry_run=effective_dry_run, reason=reason
+        )
 
     @cli.command("backlog")
     @click.option("--agent", default="opencode", help="Agent type.")
@@ -193,3 +197,11 @@ def register_workflow_commands(cli: click.Group) -> None:
     def session_detail_cmd(session_id, full):
         """Get detailed information about a specific session."""
         return get_session_detail(session_id, include_content=full)
+
+    @cli.command("unmark")
+    @click.argument("session_ids", nargs=-1, required=True)
+    @click.option("--agent", default="opencode", help="Agent type.")
+    @cli_command(indent=2)
+    def unmark_cmd(session_ids, agent):
+        """Remove processed markers for sessions."""
+        return unmark_sessions(list(session_ids), agent=agent)

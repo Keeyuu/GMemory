@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from gmemory.commands.fetch import fetch_unprocessed_sessions
 from gmemory.commands.save import save_memory
 from gmemory.commands.mark import mark_session
+from gmemory.errors import CommandError, ErrorCode
 from gmemory.container import get_container
 
 
@@ -186,8 +187,8 @@ def _generate_workflow_suggestions(
             },
             {
                 "action": "skip",
-                "command": f"gmemory mark --session-id={session_id}",
-                "description": "Mark as processed without saving",
+                "command": f'gmemory mark --session-id={session_id} --status=skipped --reason="<reason>"',
+                "description": "Mark as skipped with reason",
             },
             {
                 "action": "detail",
@@ -209,8 +210,8 @@ def _generate_workflow_suggestions(
         },
         {
             "action": "mark_all",
-            "command": f"gmemory mark-all --agent={agent} --limit={len(sessions)}",
-            "description": "Mark all as processed (skip)",
+            "command": f'gmemory mark-all --agent={agent} --limit={len(sessions)} --reason="<reason>"',
+            "description": "Mark all as processed (skip) with reason",
         },
         {
             "action": "export_review",
@@ -225,6 +226,7 @@ def _generate_workflow_suggestions(
 def save_batch(
     memories: List[Dict[str, Any]],
     mark_sessions: bool = True,
+    skip_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Save multiple memories in a single batch operation.
 
@@ -238,7 +240,9 @@ def save_batch(
             - tags: (optional) Comma-separated tags
             - importance: (optional) high/medium/low
             - type: (optional) Memory type
+            - skip_reason: (optional) reason for skipping when content is empty
         mark_sessions: If True, mark sessions as processed after saving.
+        skip_reason: Required reason when marking sessions without content.
 
     Returns:
         Dict with:
@@ -262,7 +266,18 @@ def save_batch(
             # No content = skip this session, just mark it
             if mark_sessions:
                 try:
-                    mark_session(session_id=session_id)
+                    reason = mem.get("skip_reason") or skip_reason
+                    if not reason:
+                        raise CommandError(
+                            code=ErrorCode.CMD_MISSING_REQUIRED,
+                            message="Missing skip_reason for empty content",
+                            details={"session_id": session_id},
+                        )
+                    mark_session(
+                        session_id=session_id,
+                        status="skipped",
+                        reason=reason,
+                    )
                     marked.append(session_id)
                 except Exception as e:
                     failed.append(
@@ -280,6 +295,7 @@ def save_batch(
                 tags=mem.get("tags"),
                 importance=mem.get("importance", "medium"),
                 memory_type=mem.get("type"),
+                skip_reason=mem.get("skip_reason") or skip_reason,
             )
 
             if "error" in result:
@@ -352,13 +368,14 @@ def skip_session(session_id: str) -> Dict[str, Any]:
     Returns:
         Result dict from mark_session.
     """
-    return mark_session(session_id=session_id)
+    return mark_session(session_id=session_id, status="skipped", reason="manual skip")
 
 
 def mark_all_sessions(
     agent: str = "opencode",
     limit: int = 10,
     dry_run: bool = True,
+    reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Mark multiple unprocessed sessions as processed (batch skip).
 
@@ -369,6 +386,7 @@ def mark_all_sessions(
         agent: Agent type to mark sessions for.
         limit: Maximum number of sessions to mark.
         dry_run: If True, preview what would be marked without applying.
+        reason: Required reason when applying batch skip.
 
     Returns:
         Dict with:
@@ -404,13 +422,20 @@ def mark_all_sessions(
             "hint": "Use --apply to actually mark these sessions.",
         }
 
+    if not reason:
+        raise CommandError(
+            code=ErrorCode.CMD_MISSING_REQUIRED,
+            message="Missing reason for batch mark",
+            details={"required": "reason"},
+        )
+
     # Actually mark sessions
     marked = []
     failed = []
 
     for session_id in session_ids:
         try:
-            mark_session(session_id=session_id)
+            mark_session(session_id=session_id, status="skipped", reason=reason)
             marked.append(session_id)
         except Exception as e:
             failed.append({"session_id": session_id, "error": str(e)})
@@ -492,6 +517,29 @@ def get_scan_error_summary() -> Dict[str, Any]:
         "by_file": dict(sorted(by_file.items(), key=lambda x: x[1], reverse=True)[:10]),
         "recent_errors": recent_formatted,
         "suggestions": suggestions,
+    }
+
+
+def unmark_sessions(
+    session_ids: List[str],
+    agent: str = "opencode",
+) -> Dict[str, Any]:
+    """Remove processed markers so sessions can be re-processed.
+
+    Args:
+        session_ids: Session IDs to unmark.
+        agent: Agent identifier.
+
+    Returns:
+        Dict with deleted count and missing IDs.
+    """
+    container = get_container()
+    db = container.get_database()
+
+    deleted = db.delete_processed_sessions(agent=agent, session_ids=session_ids)
+    return {
+        "deleted": deleted,
+        "requested": len(session_ids),
     }
 
 

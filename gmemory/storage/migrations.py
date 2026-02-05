@@ -257,3 +257,21 @@ def migrate_v4(conn: sqlite3.Connection) -> None:
             embedding float32[{dim}] distance_metric=cosine
         )
     """)
+
+
+@migration(5, "Add status and reason to processed_sessions")
+def migrate_v5(conn: sqlite3.Connection) -> None:
+    """Add status and reason fields to processed_sessions.
+
+    Enables auditability for skipped/batch processed sessions.
+    """
+    cursor = conn.execute("PRAGMA table_info(processed_sessions)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if "status" not in columns:
+        conn.execute(
+            "ALTER TABLE processed_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'processed'"
+        )
+
+    if "reason" not in columns:
+        conn.execute("ALTER TABLE processed_sessions ADD COLUMN reason TEXT")

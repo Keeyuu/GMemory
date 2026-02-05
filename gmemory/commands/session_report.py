@@ -224,6 +224,8 @@ def get_session_detail(
                     "session_id": session_id,
                     "found": True,
                     "processed_at": processed["processed_at"],
+                    "status": processed.get("status", "processed"),
+                    "reason": processed.get("reason"),
                     "agent": processed["agent"],
                     "memories": [],
                     "memory_count": 0,

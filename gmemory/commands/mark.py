@@ -9,6 +9,8 @@ from gmemory.storage.database import MemoryDatabase
 def mark_session(
     session_id: str,
     agent: Optional[str] = None,
+    status: str = "processed",
+    reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Mark a session as processed without saving a specific memory.
@@ -16,6 +18,8 @@ def mark_session(
     Args:
         session_id: The ID of the session to mark.
         agent: The agent identifier. Defaults to config.default_agent.
+        status: Processing status (processed/skipped).
+        reason: Optional reason for marking.
 
     Returns:
         Dict containing:
@@ -37,6 +41,8 @@ def mark_session(
             agent=agent,
             session_id=session_id,
             processed_at=current_time,
+            status=status,
+            reason=reason,
         )
 
         # Add to database

@@ -101,10 +101,18 @@ class ProcessedSession:
     agent: str
     session_id: str
     processed_at: int = field(default_factory=lambda: int(time.time()))
+    status: str = "processed"
+    reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ProcessedSession":
-        return cls(**data)
+        return cls(
+            agent=data["agent"],
+            session_id=data["session_id"],
+            processed_at=data.get("processed_at", int(time.time())),
+            status=data.get("status", "processed"),
+            reason=data.get("reason"),
+        )
