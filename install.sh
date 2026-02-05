@@ -18,6 +18,7 @@ NC='\033[0m' # No Color
 
 # Options
 SKIP_SKILLS=false
+SKIP_MODULES=false
 DEV_MODE=false
 FORCE_MODE=false
 SKILLS_DIR=""
@@ -27,6 +28,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --skip-skills)
             SKIP_SKILLS=true
+            shift
+            ;;
+        --skip-modules)
+            SKIP_MODULES=true
             shift
             ;;
         --dev)
@@ -47,10 +52,11 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: ./install.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --dev          Install with dev dependencies"
-            echo "  --force        Force reinstall (uninstall first)"
-            echo "  --skip-skills  Skip OpenCode skills installation"
-            echo "  --skills-dir   Custom skills directory"
+            echo "  --dev           Install with dev dependencies"
+            echo "  --force         Force reinstall (uninstall first)"
+            echo "  --skip-modules  Skip Python module installation"
+            echo "  --skip-skills   Skip OpenCode skills installation"
+            echo "  --skills-dir    Custom skills directory"
             echo "  -h, --help     Show this help"
             exit 0
             ;;
@@ -103,92 +109,84 @@ else
     echo -e "${YELLOW}[INFO] No existing installation found, performing fresh install${NC}"
 fi
 
-# Step 1: Install/Upgrade GMemory
-echo ""
-if [ -n "$EXISTING_VERSION" ] || command -v gmemory &> /dev/null; then
-    echo -e "${CYAN}Step 1: Upgrading GMemory...${NC}"
-else
-    echo -e "${CYAN}Step 1: Installing GMemory...${NC}"
-fi
+install_modules() {
+    echo ""
+    if [ -n "$EXISTING_VERSION" ] || command -v gmemory &> /dev/null; then
+        echo -e "${CYAN}Step 1: Upgrading GMemory...${NC}"
+    else
+        echo -e "${CYAN}Step 1: Installing GMemory...${NC}"
+    fi
 
-if $FORCE_MODE; then
-    echo -e "${YELLOW}[INFO] Force reinstall requested${NC}"
+    if $FORCE_MODE; then
+        echo -e "${YELLOW}[INFO] Force reinstall requested${NC}"
+        if $USE_UV; then
+            uv pip uninstall gmemory -q 2>/dev/null || true
+        else
+            $PIP_CMD uninstall gmemory -y -q 2>/dev/null || true
+        fi
+    fi
+
     if $USE_UV; then
-        uv pip uninstall gmemory -q 2>/dev/null || true
+        if $DEV_MODE; then
+            uv pip install -e "$SCRIPT_DIR" --reinstall
+        else
+            uv pip install -e "$SCRIPT_DIR" --reinstall
+        fi
     else
-        $PIP_CMD uninstall gmemory -y -q 2>/dev/null || true
+        if $DEV_MODE; then
+            $PIP_CMD install -e "$SCRIPT_DIR[dev]" --upgrade
+        else
+            $PIP_CMD install -e "$SCRIPT_DIR" --upgrade
+        fi
     fi
-fi
+    echo -e "${GREEN}[OK] GMemory installed/upgraded successfully${NC}"
+}
 
-if $USE_UV; then
-    if $DEV_MODE; then
-        uv pip install -e "$SCRIPT_DIR" --reinstall
+verify_installation() {
+    echo ""
+    echo -e "${CYAN}Step 2: Verifying installation...${NC}"
+
+    if command -v gmemory &> /dev/null; then
+        NEW_VERSION=$(gmemory --version 2>/dev/null || echo "")
+        echo -e "${GREEN}[OK] gmemory command is available${NC}"
+        if [ -n "$EXISTING_VERSION" ] && [ -n "$NEW_VERSION" ] && [ "$EXISTING_VERSION" != "$NEW_VERSION" ]; then
+            echo -e "${GREEN}[OK] Upgraded: $EXISTING_VERSION -> $NEW_VERSION${NC}"
+        fi
     else
-        uv pip install -e "$SCRIPT_DIR" --reinstall
+        echo -e "${YELLOW}[WARN] gmemory command may not be in PATH${NC}"
+        echo -e "${YELLOW}       Try: export PATH=\"\$PATH:\$HOME/.local/bin\"${NC}"
     fi
-else
-    if $DEV_MODE; then
-        $PIP_CMD install -e "$SCRIPT_DIR[dev]" --upgrade
-    else
-        $PIP_CMD install -e "$SCRIPT_DIR" --upgrade
+}
+
+install_skills() {
+    if $SKIP_SKILLS; then
+        echo ""
+        echo -e "${YELLOW}Step 3: Skipping skills installation (--skip-skills)${NC}"
+        return
     fi
-fi
-echo -e "${GREEN}[OK] GMemory installed/upgraded successfully${NC}"
 
-# Step 2: Verify installation
-echo ""
-echo -e "${CYAN}Step 2: Verifying installation...${NC}"
-
-if command -v gmemory &> /dev/null; then
-    NEW_VERSION=$(gmemory --version 2>/dev/null || echo "")
-    echo -e "${GREEN}[OK] gmemory command is available${NC}"
-    if [ -n "$EXISTING_VERSION" ] && [ -n "$NEW_VERSION" ] && [ "$EXISTING_VERSION" != "$NEW_VERSION" ]; then
-        echo -e "${GREEN}[OK] Upgraded: $EXISTING_VERSION -> $NEW_VERSION${NC}"
-    fi
-else
-    echo -e "${YELLOW}[WARN] gmemory command may not be in PATH${NC}"
-    echo -e "${YELLOW}       Try: export PATH=\"\$PATH:\$HOME/.local/bin\"${NC}"
-fi
-
-# Step 3: Install/Update Skills
-if ! $SKIP_SKILLS; then
     echo ""
     echo -e "${CYAN}Step 3: Installing/Updating Skills for OpenCode...${NC}"
-    
-    # Determine skills directory
-    if [ -z "$SKILLS_DIR" ]; then
-        SKILLS_DIR="$HOME/.config/opencode/skills"
+
+    skills_args=()
+    if [ -n "$SKILLS_DIR" ]; then
+        skills_args+=("--skills-dir" "$SKILLS_DIR")
     fi
-    
-    # Create skills directory if not exists
-    if [ ! -d "$SKILLS_DIR" ]; then
-        mkdir -p "$SKILLS_DIR"
-        echo -e "${GREEN}[OK] Created skills directory: $SKILLS_DIR${NC}"
-    fi
-    
-    # Copy skills (overwrite existing)
-    SOURCE_SKILLS="$SCRIPT_DIR/skills"
-    if [ -d "$SOURCE_SKILLS" ]; then
-        for skill in "$SOURCE_SKILLS"/*/; do
-            skill_name=$(basename "$skill")
-            dest_path="$SKILLS_DIR/$skill_name"
-            action="Installed"
-            if [ -d "$dest_path" ]; then
-                action="Updated"
-            fi
-            rm -rf "$dest_path"
-            cp -r "$skill" "$dest_path"
-            echo -e "${GREEN}[OK] $action skill: $skill_name${NC}"
-        done
-    else
-        echo -e "${YELLOW}[WARN] Skills directory not found in source${NC}"
-    fi
+
+    "$SCRIPT_DIR/install-skills.sh" "${skills_args[@]}"
+}
+
+if ! $SKIP_MODULES; then
+    install_modules
+    verify_installation
 else
     echo ""
-    echo -e "${YELLOW}Step 3: Skipping skills installation (--skip-skills)${NC}"
+    echo -e "${YELLOW}Step 1: Skipping module installation (--skip-modules)${NC}"
 fi
 
-# Step 4: Initialize/Verify data directory
+install_skills
+
+ # Step 4: Initialize/Verify data directory
 echo ""
 echo -e "${CYAN}Step 4: Verifying data directory...${NC}"
 

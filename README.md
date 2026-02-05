@@ -54,6 +54,12 @@ GMemory is a lightweight CLI tool that provides persistent memory for AI coding 
 git clone https://github.com/Keeyuu/GMemory.git
 cd GMemory
 powershell -ExecutionPolicy Bypass -File install.ps1
+
+# Skip Python module installation
+powershell -ExecutionPolicy Bypass -File install.ps1 -SkipModules
+
+# Skip skills installation
+powershell -ExecutionPolicy Bypass -File install.ps1 -SkipSkills
 ```
 
 **Linux/macOS:**
@@ -61,11 +67,17 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 git clone https://github.com/Keeyuu/GMemory.git
 cd GMemory
 chmod +x install.sh && ./install.sh
+
+# Skip Python module installation
+./install.sh --skip-modules
+
+# Skip skills installation
+./install.sh --skip-skills
 ```
 
 The install script will:
-1. Install GMemory package
-2. Install OpenCode skills to `~/.config/opencode/skills/`
+1. Install GMemory package (can be skipped)
+2. Install OpenCode skills (can be skipped)
 3. Create data directory `~/.gmemory/`
 
 ### Manual Install
@@ -87,6 +99,7 @@ cp -r skills/* ~/.config/opencode/skills/
 |--------|-------------|
 | `--dev` | Install with dev dependencies (pytest, mypy) |
 | `--force` | Force reinstall (uninstall first, then install) |
+| `--skip-modules` | Skip Python module installation |
 | `--skip-skills` | Skip OpenCode skills installation |
 | `--skills-dir <path>` | Custom skills directory |
 
@@ -110,6 +123,9 @@ chmod +x install-skills.sh && ./install-skills.sh
 ```bash
 # Install for specific agents
 ./install-skills.sh --agents opencode,github-copilot
+
+# Custom skills source directory
+./install-skills.sh --skills-dir /path/to/skills
 
 # List available skills
 ./install-skills.sh --list

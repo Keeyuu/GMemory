@@ -19,12 +19,17 @@ NC='\033[0m'
 AGENTS=("opencode" "github-copilot")
 LIST_MODE=false
 UNINSTALL_MODE=false
+SKILLS_DIR=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --agents)
             IFS=',' read -ra AGENTS <<< "$2"
+            shift 2
+            ;;
+        --skills-dir)
+            SKILLS_DIR="$2"
             shift 2
             ;;
         --list)
@@ -43,6 +48,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --agents <list>   Comma-separated agents (default: opencode,github-copilot)"
             echo "  --list            List available skills"
+            echo "  --skills-dir      Custom skills source directory"
             echo "  --uninstall       Remove skills"
             echo "  -h, --help        Show this help"
             exit 0
@@ -61,7 +67,11 @@ echo ""
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS_SOURCE="$SCRIPT_DIR/skills"
+if [ -n "$SKILLS_DIR" ]; then
+    SKILLS_SOURCE="$SKILLS_DIR"
+else
+    SKILLS_SOURCE="$SCRIPT_DIR/skills"
+fi
 
 # Available skills
 declare -A SKILL_PATHS
@@ -80,8 +90,8 @@ if $LIST_MODE; then
     for skill in "${SKILL_NAMES[@]}"; do
         echo -e "  ${GREEN}$skill${NC}"
         echo -e "    ${GRAY}${SKILL_DESCS[$skill]}${NC}"
-        echo -e "    ${GRAY}Path: ${SKILL_PATHS[$skill]}${NC}"
-        echo ""
+    echo -e "    ${GRAY}Path: ${SKILL_PATHS[$skill]}${NC}"
+    echo ""
     done
     exit 0
 fi

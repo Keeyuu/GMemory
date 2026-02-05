@@ -8,6 +8,7 @@
 
 param(
     [switch]$SkipSkills,
+    [switch]$SkipModules,
     [switch]$Dev,
     [switch]$Force,
     [string]$SkillsDir
@@ -18,6 +19,13 @@ $ErrorActionPreference = "Stop"
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  GMemory Installation Script" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Options:" -ForegroundColor Yellow
+Write-Host "  -SkipModules  Skip Python module installation" -ForegroundColor Yellow
+Write-Host "  -SkipSkills   Skip OpenCode skills installation" -ForegroundColor Yellow
+Write-Host "  -Dev          Install with dev dependencies" -ForegroundColor Yellow
+Write-Host "  -Force        Force reinstall" -ForegroundColor Yellow
+Write-Host "  -SkillsDir    Custom skills source directory" -ForegroundColor Yellow
 Write-Host ""
 
 # Detect package manager
@@ -48,100 +56,93 @@ try {
     Write-Host "[INFO] No existing installation found, performing fresh install" -ForegroundColor Yellow
 }
 
-# Step 1: Install/Upgrade GMemory
-Write-Host ""
-if ($ExistingVersion) {
-    Write-Host "Step 1: Upgrading GMemory..." -ForegroundColor Cyan
-} else {
-    Write-Host "Step 1: Installing GMemory..." -ForegroundColor Cyan
-}
-
-try {
-    if ($UseUv) {
-        if ($Force) {
-            Write-Host "[INFO] Force reinstall requested" -ForegroundColor Yellow
-            uv pip uninstall gmemory -q 2>$null
-        }
-        if ($Dev) {
-            uv pip install -e "$ScriptDir" --reinstall
-        } else {
-            uv pip install -e "$ScriptDir" --reinstall
-        }
+function Install-Modules {
+    Write-Host ""
+    if ($ExistingVersion) {
+        Write-Host "Step 1: Upgrading GMemory..." -ForegroundColor Cyan
     } else {
-        if ($Force) {
-            Write-Host "[INFO] Force reinstall requested" -ForegroundColor Yellow
-            pip uninstall gmemory -y -q 2>$null
-        }
-        if ($Dev) {
-            pip install -e "$ScriptDir[dev]" --upgrade
-        } else {
-            pip install -e "$ScriptDir" --upgrade
-        }
+        Write-Host "Step 1: Installing GMemory..." -ForegroundColor Cyan
     }
-    Write-Host "[OK] GMemory installed/upgraded successfully" -ForegroundColor Green
-} catch {
-    Write-Host "[ERROR] Failed to install GMemory: $_" -ForegroundColor Red
-    exit 1
+
+    try {
+        if ($UseUv) {
+            if ($Force) {
+                Write-Host "[INFO] Force reinstall requested" -ForegroundColor Yellow
+                uv pip uninstall gmemory -q 2>$null
+            }
+            if ($Dev) {
+                uv pip install -e "$ScriptDir" --reinstall
+            } else {
+                uv pip install -e "$ScriptDir" --reinstall
+            }
+        } else {
+            if ($Force) {
+                Write-Host "[INFO] Force reinstall requested" -ForegroundColor Yellow
+                pip uninstall gmemory -y -q 2>$null
+            }
+            if ($Dev) {
+                pip install -e "$ScriptDir[dev]" --upgrade
+            } else {
+                pip install -e "$ScriptDir" --upgrade
+            }
+        }
+        Write-Host "[OK] GMemory installed/upgraded successfully" -ForegroundColor Green
+    } catch {
+        Write-Host "[ERROR] Failed to install GMemory: $_" -ForegroundColor Red
+        exit 1
+    }
 }
 
-# Step 2: Verify installation
-Write-Host ""
-Write-Host "Step 2: Verifying installation..." -ForegroundColor Cyan
+function Verify-Installation {
+    Write-Host ""
+    Write-Host "Step 2: Verifying installation..." -ForegroundColor Cyan
 
-try {
-    $NewVersion = gmemory --version 2>&1
-    if ($NewVersion) {
-        Write-Host "[OK] gmemory command is available" -ForegroundColor Green
-        if ($ExistingVersion -and $ExistingVersion -ne $NewVersion) {
-            Write-Host "[OK] Upgraded: $ExistingVersion -> $NewVersion" -ForegroundColor Green
-        }
-    } else {
-        $helpOutput = gmemory --help 2>&1 | Select-String "GMemory"
-        if ($helpOutput) {
+    try {
+        $NewVersion = gmemory --version 2>&1
+        if ($NewVersion) {
             Write-Host "[OK] gmemory command is available" -ForegroundColor Green
+            if ($ExistingVersion -and $ExistingVersion -ne $NewVersion) {
+                Write-Host "[OK] Upgraded: $ExistingVersion -> $NewVersion" -ForegroundColor Green
+            }
+        } else {
+            $helpOutput = gmemory --help 2>&1 | Select-String "GMemory"
+            if ($helpOutput) {
+                Write-Host "[OK] gmemory command is available" -ForegroundColor Green
+            }
         }
+    } catch {
+        Write-Host "[WARN] Could not verify gmemory command" -ForegroundColor Yellow
     }
-} catch {
-    Write-Host "[WARN] Could not verify gmemory command" -ForegroundColor Yellow
 }
 
-# Step 3: Install/Update Skills
-if (-not $SkipSkills) {
+function Install-Skills {
+    if ($SkipSkills) {
+        Write-Host ""
+        Write-Host "Step 3: Skipping skills installation (--SkipSkills)" -ForegroundColor Yellow
+        return
+    }
+
     Write-Host ""
     Write-Host "Step 3: Installing/Updating Skills for OpenCode..." -ForegroundColor Cyan
-    
-    # Determine skills directory
-    if (-not $SkillsDir) {
-        $SkillsDir = Join-Path $env:USERPROFILE ".config\opencode\skills"
+
+    $skillsArgs = @()
+    if ($SkillsDir) {
+        $skillsArgs += "--skills-dir"
+        $skillsArgs += $SkillsDir
     }
-    
-    # Create skills directory if not exists
-    if (-not (Test-Path $SkillsDir)) {
-        New-Item -ItemType Directory -Path $SkillsDir -Force | Out-Null
-        Write-Host "[OK] Created skills directory: $SkillsDir" -ForegroundColor Green
-    }
-    
-    # Copy skills (overwrite existing)
-    $SourceSkills = Join-Path $ScriptDir "skills"
-    if (Test-Path $SourceSkills) {
-        $SkillFolders = Get-ChildItem -Path $SourceSkills -Directory
-        foreach ($skill in $SkillFolders) {
-            $DestPath = Join-Path $SkillsDir $skill.Name
-            $Action = "Installed"
-            if (Test-Path $DestPath) {
-                Remove-Item -Path $DestPath -Recurse -Force
-                $Action = "Updated"
-            }
-            Copy-Item -Path $skill.FullName -Destination $DestPath -Recurse
-            Write-Host "[OK] $Action skill: $($skill.Name)" -ForegroundColor Green
-        }
-    } else {
-        Write-Host "[WARN] Skills directory not found in source" -ForegroundColor Yellow
-    }
+
+    & (Join-Path $ScriptDir "install-skills.ps1") @skillsArgs
+}
+
+if (-not $SkipModules) {
+    Install-Modules
+    Verify-Installation
 } else {
     Write-Host ""
-    Write-Host "Step 3: Skipping skills installation (--SkipSkills)" -ForegroundColor Yellow
+    Write-Host "Step 1: Skipping module installation (--SkipModules)" -ForegroundColor Yellow
 }
+
+Install-Skills
 
 # Step 4: Initialize/Verify data directory
 Write-Host ""

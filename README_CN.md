@@ -54,6 +54,12 @@ GMemory 是一个轻量级 CLI 工具，为 AI 编程助手提供持久化记忆
 git clone https://github.com/Keeyuu/GMemory.git
 cd GMemory
 powershell -ExecutionPolicy Bypass -File install.ps1
+
+# 跳过 Python 模块安装
+powershell -ExecutionPolicy Bypass -File install.ps1 -SkipModules
+
+# 跳过 skills 安装
+powershell -ExecutionPolicy Bypass -File install.ps1 -SkipSkills
 ```
 
 **Linux/macOS:**
@@ -61,11 +67,17 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 git clone https://github.com/Keeyuu/GMemory.git
 cd GMemory
 chmod +x install.sh && ./install.sh
+
+# 跳过 Python 模块安装
+./install.sh --skip-modules
+
+# 跳过 skills 安装
+./install.sh --skip-skills
 ```
 
 安装脚本会：
-1. 安装 GMemory 包
-2. 安装 OpenCode skills 到 `~/.config/opencode/skills/`
+1. 安装 GMemory 包（可跳过）
+2. 安装 OpenCode skills（可跳过）
 3. 创建数据目录 `~/.gmemory/`
 
 ### 手动安装
@@ -87,6 +99,7 @@ cp -r skills/* ~/.config/opencode/skills/
 |------|------|
 | `--dev` | 安装开发依赖（pytest, mypy） |
 | `--force` | 强制重新安装（先卸载再安装） |
+| `--skip-modules` | 跳过 Python 模块安装 |
 | `--skip-skills` | 跳过 OpenCode skills 安装 |
 | `--skills-dir <path>` | 自定义 skills 目录 |
 
@@ -110,6 +123,9 @@ chmod +x install-skills.sh && ./install-skills.sh
 ```bash
 # 为特定 agent 安装
 ./install-skills.sh --agents opencode,github-copilot
+
+# 自定义 skills 源目录
+./install-skills.sh --skills-dir /path/to/skills
 
 # 列出可用 skills
 ./install-skills.sh --list

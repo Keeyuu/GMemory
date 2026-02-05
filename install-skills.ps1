@@ -7,7 +7,8 @@
 param(
     [string[]]$Agents = @("opencode", "github-copilot"),
     [switch]$List,
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [string]$SkillsDir
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,7 +20,11 @@ Write-Host ""
 
 # Get script directory
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$SkillsSource = Join-Path $ScriptDir "skills"
+if ($SkillsDir) {
+    $SkillsSource = $SkillsDir
+} else {
+    $SkillsSource = Join-Path $ScriptDir "skills"
+}
 
 # Available skills
 $Skills = @(
