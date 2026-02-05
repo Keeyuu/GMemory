@@ -11,8 +11,9 @@ LOG_FORMAT_DEBUG = (
     "%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d: %(message)s"
 )
 
-# Default log level
-DEFAULT_LEVEL = logging.INFO
+# Default log level - WARNING to keep JSON output clean
+# Use GMEMORY_LOG_LEVEL=INFO or GMEMORY_DEBUG=1 for verbose output
+DEFAULT_LEVEL = logging.WARNING
 
 
 def setup_logging(
