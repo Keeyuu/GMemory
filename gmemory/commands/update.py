@@ -70,6 +70,7 @@ def update_memory(
         embedding = None
         embedding_stored = False
         error_msg = None
+        embedder = None
 
         if content is not None:
             try:
@@ -94,8 +95,33 @@ def update_memory(
                     "error": error_msg or "Embedding required but not available",
                 }
 
+        # Generate tag embedding if tag index is enabled and tags changed or content changed
+        tag_embedding = None
+        should_update_tag_index = (
+            config.search_use_tag_index
+            and memory.tags
+            and (tags is not None or content is not None)
+        )
+        if should_update_tag_index:
+            try:
+                if embedder is None:
+                    embedder = get_embedder()
+                if not isinstance(embedder, NoOpEmbedder):
+                    tag_text = ", ".join(memory.tags)
+                    tag_embedding = embedder.embed(tag_text)
+                    if not is_valid_embedding(
+                        tag_embedding, config.embedding_dimension
+                    ):
+                        tag_embedding = None
+            except Exception:
+                pass  # Tag embedding is optional, don't fail on error
+
         # Save updates
-        db.update_memory(memory, embedding if embedding_stored else None)
+        db.update_memory(
+            memory,
+            embedding if embedding_stored else None,
+            tag_embedding=tag_embedding,
+        )
 
         result = {
             "id": mem_id,

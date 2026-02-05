@@ -67,6 +67,7 @@ def add_memory(
     )
 
     db = None
+    embedder = None
     try:
         # Generate embedding
         embedding = None
@@ -96,11 +97,31 @@ def add_memory(
                 "error": error_msg or "Embedding required but not available",
             }
 
+        # Generate tag embedding if tag index is enabled and we have valid tags
+        tag_embedding = None
+        if (
+            embedding_stored
+            and tags_list
+            and config.search_use_tag_index
+            and embedder is not None
+        ):
+            try:
+                tag_text = ", ".join(tags_list)
+                tag_embedding = embedder.embed(tag_text)
+                if not is_valid_embedding(tag_embedding, config.embedding_dimension):
+                    tag_embedding = None
+            except Exception:
+                pass  # Tag embedding is optional, don't fail on error
+
         # Initialize Database
         db = MemoryDatabase()
 
         # Save Memory (only with valid embedding or if not required)
-        db.add_memory(memory, embedding if embedding_stored else None)
+        db.add_memory(
+            memory,
+            embedding if embedding_stored else None,
+            tag_embedding=tag_embedding,
+        )
 
         result = {
             "id": memory_id,
