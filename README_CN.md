@@ -92,6 +92,32 @@ cp -r skills/* ~/.config/opencode/skills/
 
 **升级**：重新运行安装脚本即可升级到最新版本。
 
+### Skills 安装（npx skills 用户）
+
+如果你使用 `npx skills` CLI 管理 skills（适用于 OpenCode、GitHub Copilot 等）：
+
+**Windows:**
+```powershell
+powershell -ExecutionPolicy Bypass -File install-skills.ps1
+```
+
+**Linux/macOS:**
+```bash
+chmod +x install-skills.sh && ./install-skills.sh
+```
+
+**选项：**
+```bash
+# 为特定 agent 安装
+./install-skills.sh --agents opencode,github-copilot
+
+# 列出可用 skills
+./install-skills.sh --list
+
+# 卸载 skills
+./install-skills.sh --uninstall
+```
+
 **依赖要求**：Python 3.10+、sqlite-vec、fastembed
 
 ## 快速开始

@@ -92,6 +92,32 @@ cp -r skills/* ~/.config/opencode/skills/
 
 **Upgrade**: Simply re-run the install script to upgrade to the latest version.
 
+### Skills Installation (npx skills users)
+
+If you manage skills via `npx skills` CLI (for OpenCode, GitHub Copilot, etc.):
+
+**Windows:**
+```powershell
+powershell -ExecutionPolicy Bypass -File install-skills.ps1
+```
+
+**Linux/macOS:**
+```bash
+chmod +x install-skills.sh && ./install-skills.sh
+```
+
+**Options:**
+```bash
+# Install for specific agents
+./install-skills.sh --agents opencode,github-copilot
+
+# List available skills
+./install-skills.sh --list
+
+# Uninstall skills
+./install-skills.sh --uninstall
+```
+
 **Requirements**: Python 3.10+, sqlite-vec, fastembed
 
 ## Quick Start
