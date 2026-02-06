@@ -10,6 +10,7 @@ def list_memories(
     offset: int = 0,
     project_path: Optional[str] = None,
     importance: Optional[str] = None,
+    memory_type: Optional[str] = None,
     sort_by: str = "updated_at",
     sort_order: str = "desc",
 ) -> Dict[str, Any]:
@@ -26,6 +27,7 @@ def list_memories(
         offset: Number of results to skip (for pagination).
         project_path: Optional project path to filter by.
         importance: Optional importance level to filter by (high/medium/low).
+        memory_type: Optional memory type to filter by.
         sort_by: Field to sort by (created_at, updated_at). Defaults to updated_at.
         sort_order: Sort order (asc, desc). Defaults to desc.
 
@@ -51,6 +53,10 @@ def list_memories(
             conditions.append("importance = ?")
             params.append(importance)
 
+        if memory_type:
+            conditions.append("memory_type = ?")
+            params.append(memory_type)
+
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         # Validate sort parameters
@@ -66,7 +72,7 @@ def list_memories(
 
         # Get paginated results
         query = f"""
-            SELECT id, content, tags, importance, project_name, created_at, updated_at
+            SELECT id, content, preview, tags, importance, memory_type, project_name, created_at, updated_at
             FROM memories
             {where_clause}
             ORDER BY {sort_by} {sort_order}
@@ -79,7 +85,11 @@ def list_memories(
         results = []
         for row in cursor:
             content = row["content"]
-            preview = content[:150] + "..." if len(content) > 150 else content
+            stored_preview = (row["preview"] or "").strip()
+            if stored_preview:
+                preview = stored_preview
+            else:
+                preview = content[:150] + "..." if len(content) > 150 else content
 
             # Parse tags
             tags_raw = row["tags"]
@@ -99,6 +109,7 @@ def list_memories(
                     "tags": tags,
                     "preview": preview,
                     "importance": row["importance"],
+                    "memory_type": row["memory_type"],
                     "project_name": row["project_name"],
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],

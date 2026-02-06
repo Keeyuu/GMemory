@@ -54,6 +54,7 @@ def _normalize_stats_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 class MemoryCreateRequest(BaseModel):
     content: str = Field(min_length=1)
+    preview: str = Field(min_length=1)
     tags: list[str] = Field(default_factory=list)
     importance: str = "medium"
     memory_type: str = "observation"
@@ -62,7 +63,8 @@ class MemoryCreateRequest(BaseModel):
 
 
 class MemoryUpdateRequest(BaseModel):
-    content: Optional[str] = None
+    content: str = Field(min_length=1)
+    preview: str = Field(min_length=1)
     tags: Optional[list[str]] = None
     importance: Optional[str] = None
     memory_type: Optional[str] = None
@@ -118,6 +120,7 @@ async def api_list_memories(
     offset: int = Query(default=0, ge=0),
     project_path: Optional[str] = None,
     importance: Optional[str] = None,
+    memory_type: Optional[str] = None,
     sort_by: str = "updated_at",
     sort_order: str = "desc",
 ) -> dict[str, Any]:
@@ -126,6 +129,7 @@ async def api_list_memories(
         offset=offset,
         project_path=project_path,
         importance=importance,
+        memory_type=memory_type,
         sort_by=sort_by,
         sort_order=sort_order,
     )
@@ -183,6 +187,7 @@ async def api_get_memory(memory_id: str) -> dict[str, Any]:
 async def api_create_memory(payload: MemoryCreateRequest) -> dict[str, Any]:
     result = add_memory(
         content=payload.content,
+        preview=payload.preview,
         tags=payload.tags,
         importance=payload.importance,
         memory_type=payload.memory_type,
@@ -205,6 +210,7 @@ async def api_update_memory(
     result = update_memory(
         mem_id=memory_id,
         content=payload.content,
+        preview=payload.preview,
         tags=payload.tags,
         importance=payload.importance,
         memory_type=payload.memory_type,

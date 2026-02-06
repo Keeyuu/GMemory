@@ -73,6 +73,7 @@ def register_crud_tools(server: Any) -> None:
     )
     def gmemory_add(
         content: str,
+        preview: str,
         tags: str,
         importance: str = "medium",
         memory_type: str = "observation",
@@ -83,6 +84,7 @@ def register_crud_tools(server: Any) -> None:
 
         Args:
             content: 记忆内容文本
+            preview: 预览文本（必填，由 Agent 主动生成并传入）
             tags: 标签，逗号分隔 (如 "python,api,design-pattern")
             importance: 重要程度 (low/medium/high)，默认 medium
             memory_type: 记忆类型 (observation/fact/pattern)，默认 observation
@@ -93,12 +95,14 @@ def register_crud_tools(server: Any) -> None:
             {
                 "id": "新记忆的ID",
                 "created": true,
-                "embedding_stored": true
+                "embedding_stored": true,
+                "preview": "内容预览..."
             }
         """
         try:
             result = add_memory(
                 content=content,
+                preview=preview,
                 tags=tags,
                 importance=importance,
                 memory_type=memory_type,
@@ -122,7 +126,8 @@ def register_crud_tools(server: Any) -> None:
     )
     def gmemory_update(
         mem_id: str,
-        content: Optional[str] = None,
+        content: str,
+        preview: str,
         tags: Optional[str] = None,
         importance: Optional[str] = None,
         memory_type: Optional[str] = None,
@@ -135,7 +140,8 @@ def register_crud_tools(server: Any) -> None:
 
         Args:
             mem_id: 要更新的记忆 ID
-            content: 新的内容 (可选)
+            content: 新的内容（必填）
+            preview: 新的预览文本（必填，由 Agent 主动生成并传入）
             tags: 新的标签，逗号分隔 (可选)
             importance: 新的重要程度 (可选)
             memory_type: 新的类型 (可选)
@@ -145,13 +151,15 @@ def register_crud_tools(server: Any) -> None:
         返回结构 (JSON):
             {
                 "id": "记忆ID",
-                "updated": true
+                "updated": true,
+                "preview": "更新后内容预览..."
             }
         """
         try:
             result = update_memory(
                 mem_id=mem_id,
                 content=content,
+                preview=preview,
                 tags=tags,
                 importance=importance,
                 memory_type=memory_type,

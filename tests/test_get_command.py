@@ -67,3 +67,23 @@ def test_get_memories_can_skip_access_tracking(temp_db_path: Path) -> None:
         assert memory.last_accessed_at is None
     finally:
         verify_db.close()
+
+
+def test_get_memories_uses_stored_preview_when_present(temp_db_path: Path) -> None:
+    db = MemoryDatabase()
+    try:
+        db.add_memory(
+            Memory(
+                id="get-preview-001",
+                content="This is full memory content that should not be used as preview.",
+                preview="Agent-authored preview",
+            )
+        )
+    finally:
+        db.close()
+
+    result = get_memories(
+        ids=["get-preview-001"], include_metadata=True, track_access=False
+    )
+    assert result["found"] == 1
+    assert result["results"][0]["preview"] == "Agent-authored preview"

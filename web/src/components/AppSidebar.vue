@@ -18,6 +18,7 @@ onMounted(async () => {
 
 const navItems = [
   { name: 'dashboard', label: 'Dashboard', icon: 'i-carbon-dashboard' },
+  { name: 'memories', label: 'Memories', icon: 'i-carbon-document-view' },
   { name: 'search', label: 'Search', icon: 'i-carbon-search' },
 ]
 

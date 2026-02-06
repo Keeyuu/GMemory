@@ -82,3 +82,50 @@ def test_memory_detail_endpoint_does_not_track_access() -> None:
                 verify_db.close()
         finally:
             cfg.config._config["storage"]["db_path"] = original_path
+
+
+def test_list_memories_supports_memory_type_filter() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test-webapi-filter.db"
+
+        import gmemory.config as cfg
+
+        original_path = cfg.config._config["storage"]["db_path"]
+        cfg.config._config["storage"]["db_path"] = str(db_path)
+
+        try:
+            db = MemoryDatabase()
+            try:
+                db.add_memory(
+                    Memory(
+                        id="web-type-001",
+                        content="pending memory",
+                        preview="pending preview",
+                        memory_type="pending",
+                    )
+                )
+                db.add_memory(
+                    Memory(
+                        id="web-type-002",
+                        content="done memory",
+                        preview="done preview",
+                        memory_type="done",
+                    )
+                )
+            finally:
+                db.close()
+
+            local_client = TestClient(app)
+            response = local_client.get(
+                "/api/memories",
+                params={"limit": 20, "offset": 0, "memory_type": "pending"},
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert "results" in data
+            assert len(data["results"]) == 1
+            assert data["results"][0]["memory_type"] == "pending"
+            assert data["results"][0]["preview"] == "pending preview"
+        finally:
+            cfg.config._config["storage"]["db_path"] = original_path

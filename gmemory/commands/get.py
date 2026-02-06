@@ -6,12 +6,16 @@ from typing import List, Dict, Any, Optional
 from gmemory.storage.database import MemoryDatabase
 
 
-def _build_preview(content: str, max_len: int = 180) -> str:
-    """Build preview text from full content for preview-first UI."""
-    normalized = (content or "").replace("\n", " ").strip()
-    if len(normalized) <= max_len:
-        return normalized
-    return f"{normalized[:max_len]}..."
+def _resolve_preview(preview: Optional[str], content: str, max_len: int = 180) -> str:
+    """Resolve preview with backward-compatible fallback for legacy memories."""
+    normalized_preview = (preview or "").strip()
+    if normalized_preview:
+        return normalized_preview
+
+    normalized_content = (content or "").replace("\n", " ").strip()
+    if len(normalized_content) <= max_len:
+        return normalized_content
+    return f"{normalized_content[:max_len]}..."
 
 
 def get_memories(
@@ -56,7 +60,7 @@ def get_memories(
                         # Avoid opening another read transaction just for response metadata.
                         last_accessed_at = int(time.time())
 
-                preview = _build_preview(memory.content)
+                preview = _resolve_preview(memory.preview, memory.content)
                 if include_metadata:
                     result = {
                         "id": memory.id,

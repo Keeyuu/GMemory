@@ -299,3 +299,13 @@ def migrate_v6(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_memories_last_accessed_at ON memories(last_accessed_at)"
     )
+
+
+@migration(7, "Add preview column for agent-provided memory previews")
+def migrate_v7(conn: sqlite3.Connection) -> None:
+    """Add preview column to store agent-provided summary text."""
+    cursor = conn.execute("PRAGMA table_info(memories)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if "preview" not in columns:
+        conn.execute("ALTER TABLE memories ADD COLUMN preview TEXT DEFAULT NULL")

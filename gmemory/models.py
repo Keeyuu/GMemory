@@ -55,6 +55,7 @@ class Memory:
 
     id: str
     content: str
+    preview: Optional[str] = None
     tags: List[str] = field(default_factory=list)
     importance: str = "medium"
     memory_type: Optional[str] = None
@@ -83,6 +84,7 @@ class Memory:
         return cls(
             id=data["id"],
             content=data["content"],
+            preview=data.get("preview"),
             tags=tags,
             importance=data.get("importance", "medium"),
             memory_type=data.get("memory_type"),

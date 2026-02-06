@@ -134,6 +134,7 @@ class TestCRUDTools:
             "id": "new-id",
             "created": True,
             "embedding_stored": True,
+            "preview": "Test content",
         }
 
         from gmemory.mcp.tools.crud import register_crud_tools
@@ -151,12 +152,24 @@ class TestCRUDTools:
         assert tool_func is not None
         result_json = tool_func(
             content="Test content",
+            preview="Agent preview",
             tags="python,testing",
         )
         result = json.loads(result_json)
 
         assert result["created"] is True
         assert result["id"] == "new-id"
+        assert result["preview"] == "Test content"
+        mock_add.assert_called_once_with(
+            content="Test content",
+            preview="Agent preview",
+            tags="python,testing",
+            importance="medium",
+            memory_type="observation",
+            project_path=None,
+            project_name=None,
+            require_embedding=True,
+        )
 
     @patch("gmemory.mcp.tools.crud.update_memory")
     def test_gmemory_update(self, mock_update: MagicMock) -> None:
@@ -164,6 +177,7 @@ class TestCRUDTools:
         mock_update.return_value = {
             "id": "test-id",
             "updated": True,
+            "preview": "Updated content",
         }
 
         from gmemory.mcp.tools.crud import register_crud_tools
@@ -182,10 +196,23 @@ class TestCRUDTools:
         result_json = tool_func(
             mem_id="test-id",
             content="Updated content",
+            preview="Updated preview",
         )
         result = json.loads(result_json)
 
         assert result["updated"] is True
+        assert result["preview"] == "Updated content"
+        mock_update.assert_called_once_with(
+            mem_id="test-id",
+            content="Updated content",
+            preview="Updated preview",
+            tags=None,
+            importance=None,
+            memory_type=None,
+            project_path=None,
+            project_name=None,
+            require_embedding=True,
+        )
 
     @patch("gmemory.mcp.tools.crud.delete_memory")
     def test_gmemory_delete(self, mock_delete: MagicMock) -> None:

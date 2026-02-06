@@ -8,7 +8,7 @@ import './style.css'
 
 const routes = [
   { path: '/', name: 'dashboard', component: () => import('./views/Dashboard.vue') },
-  { path: '/memories', redirect: '/search' },
+  { path: '/memories', name: 'memories', component: () => import('./views/MemoryList.vue') },
   { path: '/memories/new', name: 'new-memory', component: () => import('./views/NewMemory.vue') },
   { path: '/memory/:id', name: 'memory-detail', component: () => import('./views/MemoryDetail.vue') },
   { path: '/search', name: 'search', component: () => import('./views/Search.vue') },

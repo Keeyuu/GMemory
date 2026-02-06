@@ -158,21 +158,33 @@ def register_core_commands(cli: click.Group) -> None:
 
     @cli.command()
     @click.option("--content", required=True, help="Memory content.")
+    @click.option("--preview", required=True, help="Agent-provided preview text.")
     @click.option("--tags", help="Comma-separated tags.")
     @click.option("--importance", default="medium", help="Importance level.")
     @handle_cli_error
-    def add(content, tags, importance):
+    def add(content, preview, tags, importance):
         """Add a new memory manually."""
-        return add_memory(content=content, tags=tags, importance=importance)
+        return add_memory(
+            content=content,
+            preview=preview,
+            tags=tags,
+            importance=importance,
+        )
 
     @cli.command()
     @click.argument("mem_id")
-    @click.option("--content", help="New memory content.")
+    @click.option("--content", required=True, help="New memory content.")
+    @click.option("--preview", required=True, help="New agent-provided preview text.")
     @click.option("--tags", help="New tags.")
     @handle_cli_error
-    def update(mem_id, content, tags):
+    def update(mem_id, content, preview, tags):
         """Update an existing memory."""
-        return update_memory(mem_id=mem_id, content=content, tags=tags)
+        return update_memory(
+            mem_id=mem_id,
+            content=content,
+            preview=preview,
+            tags=tags,
+        )
 
     @cli.command()
     @click.argument("mem_id")

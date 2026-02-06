@@ -7,7 +7,8 @@ from gmemory.config import config
 
 def update_memory(
     mem_id: str,
-    content: Optional[str] = None,
+    content: str,
+    preview: str,
     tags: Optional[Union[List[str], str]] = None,
     importance: Optional[str] = None,
     memory_type: Optional[str] = None,
@@ -21,6 +22,7 @@ def update_memory(
     Args:
         mem_id: The ID of the memory to update.
         content: The new text content of the memory.
+        preview: Agent-provided preview text (required, not auto-generated).
         tags: List of tags or comma-separated string of tags.
         importance: Importance level (low, medium, high).
         memory_type: Type of memory (observation, fact, pattern).
@@ -32,12 +34,20 @@ def update_memory(
         Dict containing:
         - id: The ID of the updated memory.
         - updated: Boolean indicating success.
+        - preview: Agent-provided preview text.
 
     Raises:
         ValueError: If memory with mem_id is not found.
     """
     db = None
     try:
+        if not preview or not preview.strip():
+            return {
+                "id": mem_id,
+                "updated": False,
+                "error": "preview is required and cannot be empty",
+            }
+
         db = MemoryDatabase()
         memory = db.get_memory(mem_id)
 
@@ -45,8 +55,8 @@ def update_memory(
             raise ValueError(f"Memory with ID {mem_id} not found.")
 
         # Update fields if provided
-        if content is not None:
-            memory.content = content
+        memory.content = content
+        memory.preview = preview
 
         if tags is not None:
             if isinstance(tags, str):
@@ -72,35 +82,34 @@ def update_memory(
         error_msg = None
         embedder = None
 
-        if content is not None:
-            try:
-                embedder = get_embedder()
-                if isinstance(embedder, NoOpEmbedder):
-                    error_msg = "Embedding service unavailable"
+        try:
+            embedder = get_embedder()
+            if isinstance(embedder, NoOpEmbedder):
+                error_msg = "Embedding service unavailable"
+            else:
+                embedding = embedder.embed(content)
+                if is_valid_embedding(embedding, config.embedding_dimension):
+                    embedding_stored = True
                 else:
-                    embedding = embedder.embed(content)
-                    if is_valid_embedding(embedding, config.embedding_dimension):
-                        embedding_stored = True
-                    else:
-                        error_msg = f"Invalid embedding dimension (expected {config.embedding_dimension})"
-                        embedding = None
-            except Exception as e:
-                error_msg = f"Embedding failed: {str(e)}"
+                    error_msg = f"Invalid embedding dimension (expected {config.embedding_dimension})"
+                    embedding = None
+        except Exception as e:
+            error_msg = f"Embedding failed: {str(e)}"
 
-            # Block update if embedding required but unavailable
-            if require_embedding and not embedding_stored:
-                return {
-                    "id": mem_id,
-                    "updated": False,
-                    "error": error_msg or "Embedding required but not available",
-                }
+        # Block update if embedding required but unavailable
+        if require_embedding and not embedding_stored:
+            return {
+                "id": mem_id,
+                "updated": False,
+                "error": error_msg or "Embedding required but not available",
+            }
 
         # Generate tag embedding if tag index is enabled and tags changed or content changed
         tag_embedding = None
         should_update_tag_index = (
             config.search_use_tag_index
             and memory.tags
-            and (tags is not None or content is not None)
+            and (tags is not None or bool(content))
         )
         if should_update_tag_index:
             try:
@@ -126,6 +135,7 @@ def update_memory(
         result = {
             "id": mem_id,
             "updated": True,
+            "preview": preview,
         }
         if error_msg and not require_embedding:
             result["warning"] = error_msg

@@ -47,16 +47,14 @@ const removeLastTag = (e: KeyboardEvent) => {
 
 const handleSubmit = () => {
   if (!formData.value.content.trim()) return
-  
-  // Auto-generate preview if empty
-  if (!formData.value.preview) {
-    formData.value.preview = formData.value.content.slice(0, 150) + (formData.value.content.length > 150 ? '...' : '')
-  }
+  if (!formData.value.preview.trim()) return
   
   emit('submit', formData.value)
 }
 
-const isValid = computed(() => formData.value.content.trim().length > 0)
+const isValid = computed(
+  () => formData.value.content.trim().length > 0 && formData.value.preview.trim().length > 0,
+)
 </script>
 
 <template>
@@ -123,23 +121,15 @@ const isValid = computed(() => formData.value.content.trim().length > 0)
       </div>
     </div>
 
-    <!-- Preview (Optional) -->
+    <!-- Preview -->
     <div class="space-y-2">
-      <div class="flex justify-between">
-        <label class="text-sm font-medium text-space-300">Preview (Optional)</label>
-        <button 
-          type="button" 
-          class="text-xs text-neural-400 hover:text-neural-300"
-          @click="formData.preview = formData.content.slice(0, 150) + (formData.content.length > 150 ? '...' : '')"
-        >
-          Auto-generate
-        </button>
-      </div>
+      <label class="text-sm font-medium text-space-300">Preview</label>
       <textarea
         v-model="formData.preview"
         rows="3"
         class="input text-sm text-space-300"
         placeholder="Short preview for list view..."
+        required
       ></textarea>
     </div>
 

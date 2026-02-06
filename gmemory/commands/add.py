@@ -9,6 +9,7 @@ from gmemory.config import config
 
 def add_memory(
     content: str,
+    preview: str,
     tags: Union[List[str], str],
     importance: str = "medium",
     memory_type: str = "observation",
@@ -22,6 +23,7 @@ def add_memory(
 
     Args:
         content: The text content of the memory.
+        preview: Agent-provided preview text (required, not auto-generated).
         tags: List of tags or comma-separated string of tags.
         importance: Importance level (low, medium, high). Defaults to "medium".
         memory_type: Type of memory (observation, fact, pattern). Defaults to "observation".
@@ -35,7 +37,16 @@ def add_memory(
         - id: The ID of the created memory.
         - created: Boolean indicating success.
         - embedding_stored: Boolean indicating if embedding was stored.
+        - preview: Agent-provided preview text.
     """
+    if not preview or not preview.strip():
+        return {
+            "id": None,
+            "created": False,
+            "embedding_stored": False,
+            "error": "preview is required and cannot be empty",
+        }
+
     # Resolve agent
     if not agent:
         agent = config.default_agent
@@ -55,6 +66,7 @@ def add_memory(
     memory = Memory(
         id=memory_id,
         content=content,
+        preview=preview,
         tags=tags_list,
         importance=importance,
         memory_type=memory_type,
@@ -127,6 +139,7 @@ def add_memory(
             "id": memory_id,
             "created": True,
             "embedding_stored": embedding_stored,
+            "preview": preview,
         }
         if error_msg and not require_embedding:
             result["warning"] = error_msg

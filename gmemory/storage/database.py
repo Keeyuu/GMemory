@@ -16,7 +16,7 @@ from gmemory.storage.migrations import apply_migrations, get_migration_status
 logger = logging.getLogger(__name__)
 
 # Schema version for migration tracking
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 class MemoryDatabase:
@@ -116,6 +116,7 @@ class MemoryDatabase:
                 CREATE TABLE IF NOT EXISTS memories (
                     id TEXT PRIMARY KEY,
                     content TEXT NOT NULL,
+                    preview TEXT,
                     tags TEXT,
                     importance TEXT,
                     memory_type TEXT,
@@ -230,6 +231,20 @@ class MemoryDatabase:
         """Serialize a list of floats into a binary blob for sqlite-vec."""
         return struct.pack(f"{len(vector)}f", *vector)
 
+    @staticmethod
+    def _resolve_preview(
+        preview: Optional[str], content: str, max_len: int = 150
+    ) -> str:
+        """Resolve preview with backward-compatible fallback for legacy rows."""
+        normalized_preview = (preview or "").strip()
+        if normalized_preview:
+            return normalized_preview
+
+        normalized_content = (content or "").replace("\n", " ").strip()
+        if len(normalized_content) <= max_len:
+            return normalized_content
+        return normalized_content[:max_len] + "..."
+
     def _store_tag_embedding(self, memory_id: str, tag_embedding: List[float]) -> None:
         """Store tag embedding in the vec_tags table (dual index).
 
@@ -329,13 +344,14 @@ class MemoryDatabase:
             self.conn.execute(
                 """
                 INSERT OR REPLACE INTO memories (
-                    id, content, tags, importance, memory_type, agent, 
+                    id, content, preview, tags, importance, memory_type, agent, 
                     source_session_id, project_path, project_name, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     memory.id,
                     memory.content,
+                    memory.preview,
                     tags_json,
                     memory.importance,
                     memory.memory_type,
@@ -416,13 +432,14 @@ class MemoryDatabase:
             self.conn.execute(
                 """
                 UPDATE memories SET
-                    content = ?, tags = ?, importance = ?, memory_type = ?,
+                    content = ?, preview = ?, tags = ?, importance = ?, memory_type = ?,
                     agent = ?, source_session_id = ?, project_path = ?, 
                     project_name = ?, updated_at = ?
                 WHERE id = ?
             """,
                 (
                     memory.content,
+                    memory.preview,
                     tags_json,
                     memory.importance,
                     memory.memory_type,
@@ -961,7 +978,7 @@ class MemoryDatabase:
         cursor = self.conn.execute(
             """
             SELECT id, content, tags, importance, project_name,
-                   created_at, updated_at, access_count, last_accessed_at
+                   preview, created_at, updated_at, access_count, last_accessed_at
             FROM memories
             WHERE (superseded_by IS NULL OR superseded_by = '')
               AND COALESCE(access_count, 0) > 0
@@ -980,7 +997,7 @@ class MemoryDatabase:
         cursor = self.conn.execute(
             """
             SELECT id, content, tags, importance, project_name,
-                   created_at, updated_at, access_count, last_accessed_at
+                   preview, created_at, updated_at, access_count, last_accessed_at
             FROM memories
             WHERE (superseded_by IS NULL OR superseded_by = '')
               AND created_at <= ?
@@ -996,7 +1013,7 @@ class MemoryDatabase:
     def _memory_row_to_summary(self, row: sqlite3.Row) -> Dict[str, Any]:
         """Build a compact summary payload for dashboard-oriented memory lists."""
         content = row["content"] or ""
-        preview = content[:150] + "..." if len(content) > 150 else content
+        preview = self._resolve_preview(row["preview"], content, max_len=150)
 
         tags_raw = row["tags"]
         if isinstance(tags_raw, str):
@@ -1192,7 +1209,7 @@ class MemoryDatabase:
 
         query = """
             SELECT id, content, tags, importance, project_path, 
-                   created_at, updated_at
+                   preview, created_at, updated_at
             FROM memories 
             WHERE updated_at >= ?
             AND (superseded_by IS NULL OR superseded_by = '')
@@ -1227,7 +1244,9 @@ class MemoryDatabase:
             memories.append(
                 {
                     "id": row["id"],
-                    "preview": content[:150] + "..." if len(content) > 150 else content,
+                    "preview": self._resolve_preview(
+                        row["preview"], content, max_len=150
+                    ),
                     "tags": tags,
                     "importance": row["importance"],
                     "project_path": row["project_path"],
@@ -1271,7 +1290,7 @@ class MemoryDatabase:
         # Get recent memories (last 5)
         cursor = self.conn.execute(
             """
-            SELECT id, content, tags, updated_at 
+            SELECT id, content, preview, tags, updated_at 
             FROM memories 
             WHERE updated_at >= ?
             ORDER BY updated_at DESC 
@@ -1293,7 +1312,9 @@ class MemoryDatabase:
             recent.append(
                 {
                     "id": row["id"],
-                    "preview": content[:100] + "..." if len(content) > 100 else content,
+                    "preview": self._resolve_preview(
+                        row["preview"], content, max_len=100
+                    ),
                     "tags": tags,
                 }
             )
@@ -1329,7 +1350,7 @@ class MemoryDatabase:
         """
         cursor = self.conn.execute(
             """
-            SELECT id, content, tags, importance, project_path, updated_at
+            SELECT id, content, preview, tags, importance, project_path, updated_at
             FROM memories
             WHERE tags LIKE ?
             AND (superseded_by IS NULL OR superseded_by = '')
@@ -1353,7 +1374,9 @@ class MemoryDatabase:
                 {
                     "id": row["id"],
                     "content": content,
-                    "preview": content[:150] + "..." if len(content) > 150 else content,
+                    "preview": self._resolve_preview(
+                        row["preview"], content, max_len=150
+                    ),
                     "tags": tags,
                     "importance": row["importance"],
                     "project_path": row["project_path"],

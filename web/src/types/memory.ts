@@ -12,6 +12,7 @@ export interface ScoringBreakdown {
 export interface Memory {
   id: string
   content: string
+  memory_type?: string
   tags: string[]
   importance: 'high' | 'medium' | 'low'
   preview?: string

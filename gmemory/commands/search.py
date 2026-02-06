@@ -562,11 +562,15 @@ def _filter_and_format(
         memory = item["memory"]
 
         if compact:
-            preview = (
-                memory.content[:150] + "..."
-                if len(memory.content) > 150
-                else memory.content
-            )
+            normalized_preview = (getattr(memory, "preview", None) or "").strip()
+            if normalized_preview:
+                preview = normalized_preview
+            else:
+                preview = (
+                    memory.content[:150] + "..."
+                    if len(memory.content) > 150
+                    else memory.content
+                )
             result = {
                 "id": memory.id,
                 "tags": memory.tags,

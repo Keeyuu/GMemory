@@ -9,6 +9,13 @@ interface ListMemoriesOptions {
   limit?: number
   offset?: number
   importance?: 'high' | 'medium' | 'low'
+  memoryType?: string
+}
+
+interface ListMemoriesResponse {
+  results: Memory[]
+  total: number
+  has_more: boolean
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -47,9 +54,43 @@ export function useMemories() {
       params.set('importance', options.importance)
     }
 
-    const data = await request<{ results: Memory[] }>(`/memories?${params.toString()}`)
+    if (options.memoryType) {
+      params.set('memory_type', options.memoryType)
+    }
+
+    const data = await request<ListMemoriesResponse>(`/memories?${params.toString()}`)
     memories.value = data.results
     return data.results
+  }
+
+  const getAllMemories = async (options: Omit<ListMemoriesOptions, 'offset' | 'limit'> = {}): Promise<Memory[]> => {
+    const pageSize = 200
+    let offset = 0
+    let hasMore = true
+    const all: Memory[] = []
+
+    while (hasMore) {
+      const params = new URLSearchParams({
+        limit: String(pageSize),
+        offset: String(offset),
+      })
+
+      if (options.importance) {
+        params.set('importance', options.importance)
+      }
+
+      if (options.memoryType) {
+        params.set('memory_type', options.memoryType)
+      }
+
+      const page = await request<ListMemoriesResponse>(`/memories?${params.toString()}`)
+      all.push(...page.results)
+      hasMore = page.has_more
+      offset += pageSize
+    }
+
+    memories.value = all
+    return all
   }
 
   const getRecentMemories = async (days = 7, limit = 10): Promise<Memory[]> => {
@@ -76,19 +117,26 @@ export function useMemories() {
       method: 'POST',
       body: JSON.stringify({
         content: memory.content,
+        preview: memory.preview,
         tags: memory.tags,
         importance: memory.importance,
+        memory_type: memory.memory_type,
       }),
     })
   }
 
-  const updateMemory = async (id: string, updates: Partial<Memory>): Promise<Memory> => {
+  const updateMemory = async (
+    id: string,
+    updates: Omit<Memory, 'id' | 'created_at' | 'updated_at'>,
+  ): Promise<Memory> => {
     return request<Memory>(`/memories/${id}`, {
       method: 'PUT',
       body: JSON.stringify({
         content: updates.content,
+        preview: updates.preview,
         tags: updates.tags,
         importance: updates.importance,
+        memory_type: updates.memory_type,
       }),
     })
   }
@@ -114,6 +162,7 @@ export function useMemories() {
   return {
     memories,
     getMemories,
+    getAllMemories,
     getRecentMemories,
     getStats,
     getMemory,

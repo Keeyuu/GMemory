@@ -271,9 +271,13 @@ def get_session_detail(
                 memory_entry["content"] = row_dict["content"]
             else:
                 content = row_dict["content"]
-                memory_entry["preview"] = (
-                    content[:150] + "..." if len(content) > 150 else content
-                )
+                stored_preview = (row_dict.get("preview") or "").strip()
+                if stored_preview:
+                    memory_entry["preview"] = stored_preview
+                else:
+                    memory_entry["preview"] = (
+                        content[:150] + "..." if len(content) > 150 else content
+                    )
                 memory_entry["content_length"] = len(content)
 
             memories.append(memory_entry)
