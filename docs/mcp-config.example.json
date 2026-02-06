@@ -1,0 +1,19 @@
+{
+  "_comment": "Example configuration for gmemory MCP Server. Copy this to your client's config file (e.g., %APPDATA%/Claude/claude_desktop_config.json for Claude Desktop)",
+  "mcpServers": {
+    "gmemory": {
+      "command": "gmemory-mcp",
+      "args": [],
+      "env": {
+        "_comment": "Optional environment variables can be added here if needed"
+      }
+    }
+  },
+  "opencode_config_example": {
+    "_comment": "For OpenCode, use the same gmemory-mcp command in your settings",
+    "gmemory": {
+      "command": "gmemory-mcp",
+      "args": []
+    }
+  }
+}
