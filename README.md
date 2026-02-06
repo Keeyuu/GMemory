@@ -8,6 +8,13 @@
 
 [中文文档](README_CN.md)
 
+<div align="center">
+  <img src="docs/mainpage.png" width="100%" alt="Dashboard" />
+  <br/>
+  <img src="docs/searchpage.png" width="48%" alt="Search Interface" />
+  <img src="docs/infopage.png" width="48%" alt="Memory Detail" />
+</div>
+
 ## Overview
 
 GMemory is a lightweight CLI tool that provides persistent memory for AI coding agents. It scans OpenCode session logs, enables distillation of key information, and stores memories in a local SQLite database with hybrid vector + full-text search.
@@ -122,6 +129,31 @@ python -m gmemory.mcp
 ```
 
 Use `docs/mcp-config.example.json` for client configuration.
+
+For OpenCode on desktop environments, prefer an absolute executable path for `mcp.gmemory.command` to avoid PATH resolution issues. The install scripts now auto-configure this when `~/.config/opencode/opencode.json` exists.
+
+### End-to-End Bootstrap (OpenCode + MCP + Web)
+
+```bash
+# 1) Install / upgrade
+powershell -ExecutionPolicy Bypass -File install.ps1   # Windows
+# or
+./install.sh                                           # Linux/macOS
+
+# 2) Verify CLI and MCP commands
+gmemory health
+gmemory diagnostics
+
+# 3) Start services (optional for Web UI)
+gmemory-web
+cd web && npm run dev
+```
+
+If OpenCode reports MCP `-32000`, check these first:
+
+1. `~/.config/opencode/opencode.json` has `mcp.gmemory.command` as absolute path (not just `gmemory-mcp`).
+2. OpenCode is fully restarted after config changes.
+3. `pm2` keep-alive for `gmemory-api` / `gmemory-frontend` does not affect stdio MCP startup; root cause is usually command/path/env.
 
 ## Web API and Frontend
 

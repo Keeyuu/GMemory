@@ -144,6 +144,65 @@ verify_installation() {
         echo -e "${YELLOW}[WARN] gmemory command may not be in PATH${NC}"
         echo -e "${YELLOW}       Try: export PATH=\"\$PATH:\$HOME/.local/bin\"${NC}"
     fi
+
+    if command -v gmemory-mcp &> /dev/null; then
+        echo -e "${GREEN}[OK] gmemory-mcp command is available${NC}"
+    else
+        echo -e "${YELLOW}[WARN] gmemory-mcp command may not be in PATH${NC}"
+    fi
+
+    if command -v gmemory-web &> /dev/null; then
+        echo -e "${GREEN}[OK] gmemory-web command is available${NC}"
+    else
+        echo -e "${YELLOW}[WARN] gmemory-web command may not be in PATH${NC}"
+    fi
+}
+
+configure_opencode_mcp() {
+    echo ""
+    echo -e "${CYAN}Step 4: Configuring OpenCode MCP (optional)...${NC}"
+
+    MCP_COMMAND_PATH=""
+    if command -v gmemory-mcp &> /dev/null; then
+        MCP_COMMAND_PATH="$(command -v gmemory-mcp)"
+    elif [ -x "$SCRIPT_DIR/.venv/bin/gmemory-mcp" ]; then
+        MCP_COMMAND_PATH="$SCRIPT_DIR/.venv/bin/gmemory-mcp"
+    fi
+
+    if [ -z "$MCP_COMMAND_PATH" ]; then
+        echo -e "${YELLOW}[WARN] Could not resolve gmemory-mcp executable path${NC}"
+        echo -e "${YELLOW}       You can configure OpenCode manually after installation${NC}"
+        return
+    fi
+
+    OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
+    if [ ! -f "$OPENCODE_CONFIG" ]; then
+        echo -e "${YELLOW}[INFO] OpenCode config not found: $OPENCODE_CONFIG${NC}"
+        echo -e "${YELLOW}[INFO] Recommended MCP config snippet:${NC}"
+        echo "       \"gmemory\": { \"command\": [\"$MCP_COMMAND_PATH\"], \"enabled\": true, \"type\": \"local\" }"
+        return
+    fi
+
+    PYTHON_BIN=""
+    if command -v python3 &> /dev/null; then
+        PYTHON_BIN="python3"
+    elif command -v python &> /dev/null; then
+        PYTHON_BIN="python"
+    fi
+
+    if [ -z "$PYTHON_BIN" ]; then
+        echo -e "${YELLOW}[WARN] python/python3 not found; cannot auto-update OpenCode config${NC}"
+        echo -e "${YELLOW}[INFO] Please set mcp.gmemory.command to: $MCP_COMMAND_PATH${NC}"
+        return
+    fi
+
+    if "$PYTHON_BIN" -c "import json, pathlib, sys; p=pathlib.Path(sys.argv[1]); c=sys.argv[2]; d=json.loads(p.read_text(encoding='utf-8')); d.setdefault('mcp',{}).setdefault('gmemory',{}).update({'command':[c],'enabled':True,'type':'local'}); p.write_text(json.dumps(d, ensure_ascii=False, indent=2)+'\\n', encoding='utf-8')" "$OPENCODE_CONFIG" "$MCP_COMMAND_PATH"; then
+        echo -e "${GREEN}[OK] OpenCode MCP configured: $OPENCODE_CONFIG${NC}"
+        echo -e "${GREEN}[OK] gmemory command uses absolute path: $MCP_COMMAND_PATH${NC}"
+    else
+        echo -e "${YELLOW}[WARN] Failed to update OpenCode config automatically${NC}"
+        echo -e "${YELLOW}[INFO] Please set mcp.gmemory.command to: $MCP_COMMAND_PATH${NC}"
+    fi
 }
 
 if ! $SKIP_MODULES; then
@@ -172,6 +231,8 @@ else
         echo -e "${YELLOW}[INFO] Existing database: ${DB_SIZE} KB${NC}"
     fi
 fi
+
+configure_opencode_mcp
 
 # Done
 echo ""

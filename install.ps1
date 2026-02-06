@@ -109,6 +109,72 @@ function Verify-Installation {
     } catch {
         Write-Host "[WARN] Could not verify gmemory command" -ForegroundColor Yellow
     }
+
+    try {
+        Get-Command gmemory-mcp -ErrorAction Stop | Out-Null
+        Write-Host "[OK] gmemory-mcp command is available" -ForegroundColor Green
+    } catch {
+        Write-Host "[WARN] gmemory-mcp command not found in PATH" -ForegroundColor Yellow
+    }
+
+    try {
+        Get-Command gmemory-web -ErrorAction Stop | Out-Null
+        Write-Host "[OK] gmemory-web command is available" -ForegroundColor Green
+    } catch {
+        Write-Host "[WARN] gmemory-web command not found in PATH" -ForegroundColor Yellow
+    }
+}
+
+function Configure-OpenCodeMCP {
+    Write-Host ""
+    Write-Host "Step 4: Configuring OpenCode MCP (optional)..." -ForegroundColor Cyan
+
+    $McpCommandPath = $null
+    try {
+        $McpCommandPath = (Get-Command gmemory-mcp -ErrorAction Stop).Source
+    } catch {
+        $FallbackPath = Join-Path $ScriptDir ".venv\Scripts\gmemory-mcp.exe"
+        if (Test-Path $FallbackPath) {
+            $McpCommandPath = $FallbackPath
+        }
+    }
+
+    if (-not $McpCommandPath) {
+        Write-Host "[WARN] Could not resolve gmemory-mcp executable path" -ForegroundColor Yellow
+        Write-Host "       You can configure OpenCode manually after installation" -ForegroundColor Yellow
+        return
+    }
+
+    $OpenCodeConfigPath = Join-Path $env:USERPROFILE ".config\opencode\opencode.json"
+    if (-not (Test-Path $OpenCodeConfigPath)) {
+        Write-Host "[INFO] OpenCode config not found: $OpenCodeConfigPath" -ForegroundColor Yellow
+        Write-Host "[INFO] Recommended MCP config snippet:" -ForegroundColor Yellow
+        Write-Host "       \"gmemory\": { \"command\": [\"$McpCommandPath\"], \"enabled\": true, \"type\": \"local\" }" -ForegroundColor Yellow
+        return
+    }
+
+    try {
+        $config = Get-Content -Path $OpenCodeConfigPath -Raw | ConvertFrom-Json
+
+        if (-not $config.mcp) {
+            $config | Add-Member -NotePropertyName mcp -NotePropertyValue ([PSCustomObject]@{})
+        }
+
+        if (-not $config.mcp.gmemory) {
+            $config.mcp | Add-Member -NotePropertyName gmemory -NotePropertyValue ([PSCustomObject]@{})
+        }
+
+        $config.mcp.gmemory.command = @($McpCommandPath)
+        $config.mcp.gmemory.enabled = $true
+        $config.mcp.gmemory.type = "local"
+
+        $config | ConvertTo-Json -Depth 20 | Set-Content -Path $OpenCodeConfigPath -Encoding UTF8
+        Write-Host "[OK] OpenCode MCP configured: $OpenCodeConfigPath" -ForegroundColor Green
+        Write-Host "[OK] gmemory command uses absolute path: $McpCommandPath" -ForegroundColor Green
+    } catch {
+        Write-Host "[WARN] Failed to update OpenCode config automatically: $_" -ForegroundColor Yellow
+        Write-Host "[INFO] Please update gmemory MCP command manually to: $McpCommandPath" -ForegroundColor Yellow
+    }
 }
 
 if (-not $SkipModules) {
@@ -137,6 +203,8 @@ if (-not (Test-Path $DataDir)) {
         Write-Host "[INFO] Existing database: $([math]::Round($DbSize, 1)) KB" -ForegroundColor Yellow
     }
 }
+
+Configure-OpenCodeMCP
 
 # Done
 Write-Host ""

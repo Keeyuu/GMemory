@@ -8,6 +8,13 @@
 
 [English Documentation](README.md)
 
+<div align="center">
+  <img src="docs/mainpage.png" width="100%" alt="Dashboard" />
+  <br/>
+  <img src="docs/searchpage.png" width="48%" alt="Search Interface" />
+  <img src="docs/infopage.png" width="48%" alt="Memory Detail" />
+</div>
+
 ## 概述
 
 GMemory 是一个轻量级 CLI 工具，为 AI 编程助手提供持久化记忆能力。它扫描 OpenCode 会话日志，支持关键信息的提炼，并将记忆存储在本地 SQLite 数据库中，支持混合向量 + 全文搜索。
@@ -122,6 +129,31 @@ python -m gmemory.mcp
 ```
 
 客户端配置可参考 `docs/mcp-config.example.json`。
+
+在桌面环境使用 OpenCode 时，建议将 `mcp.gmemory.command` 配置为绝对路径，避免 PATH 解析差异导致连接失败。安装脚本在检测到 `~/.config/opencode/opencode.json` 时会自动写入该配置。
+
+### 端到端启动流程（OpenCode + MCP + Web）
+
+```bash
+# 1) 安装 / 升级
+powershell -ExecutionPolicy Bypass -File install.ps1   # Windows
+# 或
+./install.sh                                           # Linux/macOS
+
+# 2) 验证 CLI 与 MCP 相关命令
+gmemory health
+gmemory diagnostics
+
+# 3) 启动服务（Web UI 可选）
+gmemory-web
+cd web && npm run dev
+```
+
+如果 OpenCode 报 MCP `-32000`，优先检查：
+
+1. `~/.config/opencode/opencode.json` 里 `mcp.gmemory.command` 是否为绝对路径（不要只写 `gmemory-mcp`）。
+2. 修改配置后是否完全重启 OpenCode。
+3. `pm2` 保活 `gmemory-api` / `gmemory-frontend` 不会影响 stdio MCP 启动；常见根因是命令路径或环境变量。
 
 ## Web API 与前端
 
