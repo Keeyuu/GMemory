@@ -1,6 +1,10 @@
 from fastapi.testclient import TestClient
+import tempfile
+from pathlib import Path
 
 from gmemory.webapi import app
+from gmemory.models import Memory
+from gmemory.storage.database import MemoryDatabase
 
 
 client = TestClient(app)
@@ -18,6 +22,8 @@ def test_stats_endpoint() -> None:
     data = response.json()
     assert "total_memories" in data
     assert "processed_sessions" in data
+    assert "top_hot" in data
+    assert "top_cold" in data
 
 
 def test_list_memories_endpoint() -> None:
@@ -44,3 +50,35 @@ def test_tags_endpoint() -> None:
     data = response.json()
     assert "tags" in data
     assert "total_unique" in data
+
+
+def test_memory_detail_endpoint_does_not_track_access() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test-webapi.db"
+
+        import gmemory.config as cfg
+
+        original_path = cfg.config._config["storage"]["db_path"]
+        cfg.config._config["storage"]["db_path"] = str(db_path)
+
+        try:
+            db = MemoryDatabase()
+            try:
+                db.add_memory(Memory(id="web-no-track-001", content="from web api"))
+            finally:
+                db.close()
+
+            local_client = TestClient(app)
+            response = local_client.get("/api/memories/web-no-track-001")
+            assert response.status_code == 200
+
+            verify_db = MemoryDatabase()
+            try:
+                memory = verify_db.get_memory("web-no-track-001")
+                assert memory is not None
+                assert memory.access_count == 0
+                assert memory.last_accessed_at is None
+            finally:
+                verify_db.close()
+        finally:
+            cfg.config._config["storage"]["db_path"] = original_path

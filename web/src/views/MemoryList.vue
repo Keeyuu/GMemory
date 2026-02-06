@@ -2,37 +2,68 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMemories } from '../composables/useMemories'
+import type { Memory } from '../types/memory'
 import MemoryCard from '../components/MemoryCard.vue'
 
 const router = useRouter()
-const { getMemories } = useMemories()
+const { getMemories, getRecentMemories } = useMemories()
 
-const memories = ref<any[]>([])
+const memories = ref<Memory[]>([])
 const loading = ref(true)
 const searchQuery = ref('')
 const filterImportance = ref<'all' | 'high' | 'medium' | 'low'>('all')
+const scope = ref<'recent7' | 'recent30' | 'all'>('recent30')
+const limit = ref<20 | 50 | 100>(50)
 
 const loadData = async () => {
   loading.value = true
   try {
-    memories.value = await getMemories()
+    if (scope.value === 'recent7') {
+      memories.value = await getRecentMemories(7, limit.value)
+      return
+    }
+
+    if (scope.value === 'recent30') {
+      memories.value = await getRecentMemories(30, limit.value)
+      return
+    }
+
+    memories.value = await getMemories({
+      limit: limit.value,
+      offset: 0,
+      importance: filterImportance.value === 'all' ? undefined : filterImportance.value,
+    })
   } finally {
     loading.value = false
   }
 }
 
+const onScopeChange = async () => {
+  await loadData()
+}
+
+const onLimitChange = async () => {
+  await loadData()
+}
+
+const onImportanceChange = async () => {
+  if (scope.value === 'all') {
+    await loadData()
+  }
+}
+
 const filteredMemories = computed(() => {
-  return memories.value.filter(memory => {
-    // Search filter
+  return memories.value.filter((memory) => {
     const query = searchQuery.value.toLowerCase()
     const searchableText = (memory.content || memory.preview || '').toLowerCase()
-    const matchesSearch = !query || 
-      searchableText.includes(query) || 
-      memory.tags.some((tag: string) => tag.toLowerCase().includes(query))
-    
-    // Importance filter
-    const matchesImportance = filterImportance.value === 'all' || memory.importance === filterImportance.value
-    
+    const matchesSearch =
+      !query ||
+      searchableText.includes(query) ||
+      memory.tags.some((tag) => tag.toLowerCase().includes(query))
+
+    const matchesImportance =
+      filterImportance.value === 'all' || memory.importance === filterImportance.value
+
     return matchesSearch && matchesImportance
   })
 })
@@ -42,13 +73,12 @@ onMounted(loadData)
 
 <template>
   <div class="max-w-7xl mx-auto space-y-8 h-full flex flex-col">
-    <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
         <h1 class="text-2xl font-display font-semibold text-white mb-1">Memories</h1>
-        <p class="text-space-400">Manage and browse your knowledge base</p>
+        <p class="text-space-400">Use layered browsing: preview first, full content on demand.</p>
       </div>
-      <button 
+      <button
         @click="router.push({ name: 'new-memory' })"
         class="btn-primary flex items-center gap-2"
       >
@@ -57,33 +87,51 @@ onMounted(loadData)
       </button>
     </div>
 
-    <!-- Filters & Search -->
     <div class="grid grid-cols-1 sm:grid-cols-12 gap-4">
-      <!-- Search -->
-      <div class="sm:col-span-8 relative">
+      <div class="sm:col-span-4 relative">
         <div class="absolute left-3 top-1/2 -translate-y-1/2 text-space-400 pointer-events-none">
           <div class="i-carbon-search w-4 h-4" />
         </div>
-        <input 
+        <input
           v-model="searchQuery"
-          type="text" 
-          placeholder="Search content or tags..." 
+          type="text"
+          placeholder="Search content or tags..."
           class="input pl-10"
         />
       </div>
-      
-      <!-- Filter -->
-      <div class="sm:col-span-4">
-        <select v-model="filterImportance" class="input appearance-none cursor-pointer">
-          <option value="all">All Importance</option>
-          <option value="high">High Importance</option>
-          <option value="medium">Medium Importance</option>
-          <option value="low">Low Importance</option>
+
+      <div class="sm:col-span-3">
+        <select v-model="scope" class="input appearance-none cursor-pointer" @change="onScopeChange">
+          <option value="recent7">Recent 7 days</option>
+          <option value="recent30">Recent 30 days</option>
+          <option value="all">All memories</option>
         </select>
       </div>
+
+      <div class="sm:col-span-2">
+        <select v-model="filterImportance" class="input appearance-none cursor-pointer" @change="onImportanceChange">
+          <option value="all">All importance</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+
+      <div class="sm:col-span-2">
+        <select v-model="limit" class="input appearance-none cursor-pointer" @change="onLimitChange">
+          <option :value="20">20 items</option>
+          <option :value="50">50 items</option>
+          <option :value="100">100 items</option>
+        </select>
+      </div>
+
     </div>
 
-    <!-- List Content -->
+    <div class="text-xs text-space-500 -mt-2">
+      Showing {{ filteredMemories.length }} / {{ memories.length }} memories
+      <span>(preview layer)</span>
+    </div>
+
     <div v-if="loading" class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
       <div v-for="i in 6" :key="i" class="card p-5 animate-pulse min-h-[200px]">
         <div class="h-4 w-20 bg-space-800 rounded mb-4" />
@@ -103,7 +151,7 @@ onMounted(loadData)
       <p class="text-space-400 max-w-sm">
         Try adjusting your search or filters, or create a new memory to get started.
       </p>
-      <button 
+      <button
         @click="searchQuery = ''; filterImportance = 'all'"
         class="mt-6 btn-ghost text-sm"
       >

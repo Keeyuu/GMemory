@@ -275,3 +275,27 @@ def migrate_v5(conn: sqlite3.Connection) -> None:
 
     if "reason" not in columns:
         conn.execute("ALTER TABLE processed_sessions ADD COLUMN reason TEXT")
+
+
+@migration(6, "Add memory access tracking fields")
+def migrate_v6(conn: sqlite3.Connection) -> None:
+    """Add access count and last accessed timestamp to memories table."""
+    cursor = conn.execute("PRAGMA table_info(memories)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if "access_count" not in columns:
+        conn.execute(
+            "ALTER TABLE memories ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0"
+        )
+
+    if "last_accessed_at" not in columns:
+        conn.execute(
+            "ALTER TABLE memories ADD COLUMN last_accessed_at INTEGER DEFAULT NULL"
+        )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memories_last_accessed_at ON memories(last_accessed_at)"
+    )

@@ -2,7 +2,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-136%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-156%20passed-brightgreen.svg)]()
 
 **OpenCode 本地 Agent 持久化记忆系统**
 
@@ -12,7 +12,7 @@
 
 GMemory 是一个轻量级 CLI 工具，为 AI 编程助手提供持久化记忆能力。它扫描 OpenCode 会话日志，支持关键信息的提炼，并将记忆存储在本地 SQLite 数据库中，支持混合向量 + 全文搜索。
 
-**设计理念**：最小依赖、本地优先、CLI 驱动。无后台服务、无 Web UI、无云端依赖。
+**设计理念**：最小依赖、本地优先、CLI 驱动。无云端依赖。
 
 ## 功能特性
 
@@ -57,9 +57,6 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 # 跳过 Python 模块安装
 powershell -ExecutionPolicy Bypass -File install.ps1 -SkipModules
-
-# 跳过 skills 安装
-powershell -ExecutionPolicy Bypass -File install.ps1 -SkipSkills
 ```
 
 **Linux/macOS:**
@@ -70,15 +67,11 @@ chmod +x install.sh && ./install.sh
 
 # 跳过 Python 模块安装
 ./install.sh --skip-modules
-
-# 跳过 skills 安装
-./install.sh --skip-skills
 ```
 
 安装脚本会：
 1. 安装 GMemory 包（可跳过）
-2. 安装 OpenCode skills（可跳过）
-3. 创建数据目录 `~/.gmemory/`
+2. 创建数据目录 `~/.gmemory/`
 
 ### 手动安装
 
@@ -88,9 +81,6 @@ pip install -e .
 
 # 或使用 uv（推荐）
 uv pip install -e .
-
-# 手动安装 skills（可选）
-cp -r skills/* ~/.config/opencode/skills/
 ```
 
 ### 安装选项
@@ -100,39 +90,8 @@ cp -r skills/* ~/.config/opencode/skills/
 | `--dev` | 安装开发依赖（pytest, mypy） |
 | `--force` | 强制重新安装（先卸载再安装） |
 | `--skip-modules` | 跳过 Python 模块安装 |
-| `--skip-skills` | 跳过 OpenCode skills 安装 |
-| `--skills-dir <path>` | 自定义 skills 目录 |
 
 **升级**：重新运行安装脚本即可升级到最新版本。
-
-### Skills 安装（npx skills 用户）
-
-如果你使用 `npx skills` CLI 管理 skills（适用于 OpenCode、GitHub Copilot 等）：
-
-**Windows:**
-```powershell
-powershell -ExecutionPolicy Bypass -File install-skills.ps1
-```
-
-**Linux/macOS:**
-```bash
-chmod +x install-skills.sh && ./install-skills.sh
-```
-
-**选项：**
-```bash
-# 为特定 agent 安装
-./install-skills.sh --agents opencode,github-copilot
-
-# 自定义 skills 源目录
-./install-skills.sh --skills-dir /path/to/skills
-
-# 列出可用 skills
-./install-skills.sh --list
-
-# 卸载 skills
-./install-skills.sh --uninstall
-```
 
 **依赖要求**：Python 3.10+、sqlite-vec、fastembed
 
@@ -150,6 +109,85 @@ gmemory search "认证模式" --compact
 
 # 4. 获取完整内容
 gmemory get <memory-id>
+```
+
+## MCP 服务
+
+```bash
+# 启动 MCP Server（stdio）
+gmemory-mcp
+
+# 等价方式
+python -m gmemory.mcp
+```
+
+客户端配置可参考 `docs/mcp-config.example.json`。
+
+## Web API 与前端
+
+```bash
+# 启动 Web API（默认：127.0.0.1:8765）
+gmemory-web
+
+# 启动前端开发服务器
+cd web
+npm install
+npm run dev
+```
+
+生产预览：
+
+```bash
+cd web
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4173
+```
+
+使用 PM2 后台保活 Web API：
+
+```bash
+# Windows（推荐，无额外终端窗口）
+pm2 start "C:/Code/GMemory/.venv/Scripts/pythonw.exe" --name gmemory-web --cwd "C:/Code/GMemory" -- -m gmemory.webapi
+
+# 跨平台/基础方式
+pm2 start uv --name gmemory-web --cwd "C:/Code/GMemory" -- run gmemory-web
+
+pm2 save
+pm2 status gmemory-web
+```
+
+Windows 说明：PM2 启动 `uv.exe` 时可能会弹出一个终端窗口。使用上面的 `pythonw.exe` 启动方式可避免额外终端窗口。
+
+### Preview-First 工作流（Web）
+
+- 列表/搜索/Dashboard 卡片默认优先展示 `preview`。
+- 记忆详情页将 `Preview` 与 `Full Content` 分区展示。
+- 若 preview 缺失，不视为错误：前端会从内容自动派生预览，支持继续手工编辑/删除。
+
+### 记忆利用率统计
+
+- 每条记忆新增 `access_count` 与 `last_accessed_at`（Schema migration v6）。
+- 非 Web 按 ID 读取（`gmemory get`、MCP `gmemory_get`）默认会增加访问计数。
+- Web 详情读取（`GET /api/memories/{id}`）不计入访问次数，避免页面浏览污染统计。
+- `GET /api/stats` 增加 `top_hot` 与 `top_cold`，用于淘汰/改进决策。
+
+### 手工验收清单
+
+1. 打开 Dashboard，确认 `Top Hot` / `Top Cold` 区块可见。
+2. 点击热榜项进入详情页，确认同时显示 `Preview` 与 `Full Content`。
+3. 调用 Web 详情接口，确认访问计数不增加。
+4. 执行 `gmemory get <id>`，确认访问计数增加。
+
+### 使用 Edge 的 Playwright MCP 配置
+
+如果你使用 Edge 进行浏览器 MCP 自动化，可在 OpenCode 配置中加入：
+
+```json
+"playwright": {
+  "command": ["npx", "-y", "@playwright/mcp@latest", "--browser", "msedge"],
+  "enabled": true,
+  "type": "local"
+}
 ```
 
 ## 命令参考
@@ -553,7 +591,7 @@ gmemory lifecycle-stats            # 查看统计
 | 存储 | SQLite + sqlite-vec | SQLite + Chroma | Tantivy + usearch | SQLite + sqlite-vec |
 | 搜索 | 混合 (vec+FTS) | 混合 (vec+FTS) | BM25 + 语义 | 向量 |
 | 嵌入 | 本地 (FastEmbed) | 本地/远程 | 本地（多种） | 本地 (Xenova) |
-| 接口 | 仅 CLI | Hooks + Web UI | CLI + TUI | 插件 + Web UI |
+| 接口 | CLI + MCP + 本地 Web UI | Hooks + Web UI | CLI + TUI | 插件 + Web UI |
 | 后台 | 无 | Worker 服务 | 可选守护进程 | 插件钩子 |
 
 ### 为什么选择 GMemory？
@@ -567,12 +605,13 @@ gmemory lifecycle-stats            # 查看统计
 
 | 范围内 | 范围外 |
 |--------|--------|
-| OpenCode CLI 工具 | Web UI / 仪表板 |
-| 本地 SQLite 存储 | 云同步 / 远程存储 |
+| OpenCode CLI 工具 | 云同步 / 远程存储 |
+| 本地 SQLite 存储 | 外部托管数据库 |
 | 本地嵌入 (FastEmbed) | 外部嵌入 API |
 | 手动提炼工作流 | 自动摘要 |
 | 单用户本地使用 | 多用户 / 协作 |
-| 批量 CLI 操作 | 后台服务 / 守护进程 |
+| 批量 CLI 操作 | 托管云服务 |
+| 本地 MCP Server + 本地 Web UI | 多租户托管平台 |
 
 ## 测试
 

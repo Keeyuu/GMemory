@@ -7,11 +7,9 @@
 #   - Reinstall with --Force
 
 param(
-    [switch]$SkipSkills,
     [switch]$SkipModules,
     [switch]$Dev,
-    [switch]$Force,
-    [string]$SkillsDir
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,10 +20,8 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Options:" -ForegroundColor Yellow
 Write-Host "  -SkipModules  Skip Python module installation" -ForegroundColor Yellow
-Write-Host "  -SkipSkills   Skip OpenCode skills installation" -ForegroundColor Yellow
 Write-Host "  -Dev          Install with dev dependencies" -ForegroundColor Yellow
 Write-Host "  -Force        Force reinstall" -ForegroundColor Yellow
-Write-Host "  -SkillsDir    Custom skills source directory" -ForegroundColor Yellow
 Write-Host ""
 
 # Detect package manager
@@ -71,7 +67,7 @@ function Install-Modules {
                 uv pip uninstall gmemory -q 2>$null
             }
             if ($Dev) {
-                uv pip install -e "$ScriptDir" --reinstall
+                uv pip install -e "${ScriptDir}[dev]" --reinstall
             } else {
                 uv pip install -e "$ScriptDir" --reinstall
             }
@@ -115,25 +111,6 @@ function Verify-Installation {
     }
 }
 
-function Install-Skills {
-    if ($SkipSkills) {
-        Write-Host ""
-        Write-Host "Step 3: Skipping skills installation (--SkipSkills)" -ForegroundColor Yellow
-        return
-    }
-
-    Write-Host ""
-    Write-Host "Step 3: Installing/Updating Skills for OpenCode..." -ForegroundColor Cyan
-
-    $skillsArgs = @()
-    if ($SkillsDir) {
-        $skillsArgs += "--skills-dir"
-        $skillsArgs += $SkillsDir
-    }
-
-    & (Join-Path $ScriptDir "install-skills.ps1") @skillsArgs
-}
-
 if (-not $SkipModules) {
     Install-Modules
     Verify-Installation
@@ -142,11 +119,9 @@ if (-not $SkipModules) {
     Write-Host "Step 1: Skipping module installation (--SkipModules)" -ForegroundColor Yellow
 }
 
-Install-Skills
-
-# Step 4: Initialize/Verify data directory
+# Step 3: Initialize/Verify data directory
 Write-Host ""
-Write-Host "Step 4: Verifying data directory..." -ForegroundColor Cyan
+Write-Host "Step 3: Verifying data directory..." -ForegroundColor Cyan
 
 $DataDir = Join-Path $env:USERPROFILE ".gmemory"
 if (-not (Test-Path $DataDir)) {

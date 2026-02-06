@@ -60,6 +60,9 @@ def get_stats() -> Dict[str, Any]:
             imp = row["importance"] or "Unknown"
             by_importance[imp] = row["count"]
 
+        top_hot = db.get_hot_memories(limit=5)
+        top_cold = db.get_cold_memories(limit=5, min_age_days=7)
+
         return {
             "total_memories": db_stats["memories"],
             "processed_sessions": db_stats["processed_sessions"],
@@ -68,6 +71,8 @@ def get_stats() -> Dict[str, Any]:
             "scan_errors": db_stats["scan_errors"],
             "by_project": by_project,
             "by_importance": by_importance,
+            "top_hot": top_hot,
+            "top_cold": top_cold,
         }
     finally:
         if db:

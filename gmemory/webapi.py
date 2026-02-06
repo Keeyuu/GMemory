@@ -38,6 +38,17 @@ def _normalize_memory_payload(memory: dict[str, Any]) -> dict[str, Any]:
         data["created_at"] = _to_iso(data.get("created_at"))
     if "updated_at" in data:
         data["updated_at"] = _to_iso(data.get("updated_at"))
+    if "last_accessed_at" in data:
+        data["last_accessed_at"] = _to_iso(data.get("last_accessed_at"))
+    return data
+
+
+def _normalize_stats_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    data = dict(payload)
+    top_hot = data.get("top_hot") or []
+    top_cold = data.get("top_cold") or []
+    data["top_hot"] = [_normalize_memory_payload(item) for item in top_hot]
+    data["top_cold"] = [_normalize_memory_payload(item) for item in top_cold]
     return data
 
 
@@ -98,7 +109,7 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/stats")
 async def api_stats() -> dict[str, Any]:
-    return get_stats()
+    return _normalize_stats_payload(get_stats())
 
 
 @app.get("/api/memories")
@@ -162,7 +173,7 @@ async def api_recent_memories(
 
 @app.get("/api/memories/{memory_id}")
 async def api_get_memory(memory_id: str) -> dict[str, Any]:
-    result = get_memories(ids=[memory_id], include_metadata=True)
+    result = get_memories(ids=[memory_id], include_metadata=True, track_access=False)
     if not result["results"]:
         raise HTTPException(status_code=404, detail="Memory not found")
     return _normalize_memory_payload(result["results"][0])

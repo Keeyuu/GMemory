@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Memory } from '../types/memory'
 
 const props = defineProps<{
   memory: Memory
   showScoring?: boolean  // 是否显示分数分解（搜索结果页使用）
+  showFullContent?: boolean
 }>()
 
 const router = useRouter()
@@ -34,6 +36,18 @@ const importanceClass = (importance: string) => {
 
 // 计算分数条宽度百分比
 const scoreBarWidth = (score: number) => `${Math.round(score * 100)}%`
+
+const previewText = computed(() => {
+  if (props.memory.preview && props.memory.preview.trim().length > 0) {
+    return props.memory.preview
+  }
+  const raw = props.memory.content || ''
+  const normalized = raw.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= 180) {
+    return normalized
+  }
+  return `${normalized.slice(0, 180)}...`
+})
 </script>
 
 <template>
@@ -104,9 +118,12 @@ const scoreBarWidth = (score: number) => `${Math.round(score * 100)}%`
           </div>
         </div>
 
-        <!-- Preview (使用 preview 字段，短概要) -->
-        <p class="text-space-200 text-sm leading-relaxed mb-3 line-clamp-2">
-          {{ memory.preview || memory.content }}
+        <!-- Preview/Full Content -->
+        <p
+          class="text-space-200 text-sm leading-relaxed mb-3"
+          :class="showFullContent ? '' : 'line-clamp-2'"
+        >
+          {{ showFullContent ? memory.content : previewText }}
         </p>
 
         <!-- Tags (最多显示3个) -->

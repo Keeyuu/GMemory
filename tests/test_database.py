@@ -195,3 +195,50 @@ class TestMemoryDatabase:
         diag = temp_db.get_diagnostics()
         assert "scan_runs" in diag
         assert "scan_errors" in diag
+
+    def test_touch_memory_access(self, temp_db):
+        """Should increment access_count and set last_accessed_at."""
+        memory = Memory(id="access-001", content="Access test")
+        temp_db.add_memory(memory)
+
+        updated = temp_db.touch_memory_access("access-001")
+        assert updated is True
+
+        retrieved = temp_db.get_memory("access-001")
+        assert retrieved is not None
+        assert retrieved.access_count == 1
+        assert retrieved.last_accessed_at is not None
+
+    def test_hot_and_cold_memories(self, temp_db):
+        """Should return hot/cold memory summaries by access signals."""
+        old_ts = 1_700_000_000
+        temp_db.add_memory(
+            Memory(
+                id="hot-001",
+                content="Hot memory",
+                tags=["hot"],
+                created_at=old_ts,
+                updated_at=old_ts,
+            )
+        )
+        temp_db.add_memory(
+            Memory(
+                id="cold-001",
+                content="Cold memory",
+                tags=["cold"],
+                created_at=old_ts,
+                updated_at=old_ts,
+            )
+        )
+
+        temp_db.touch_memory_access("hot-001")
+        temp_db.touch_memory_access("hot-001")
+
+        hot = temp_db.get_hot_memories(limit=3)
+        cold = temp_db.get_cold_memories(limit=3, min_age_days=1)
+
+        assert len(hot) >= 1
+        assert hot[0]["id"] == "hot-001"
+        assert hot[0]["access_count"] >= 2
+        assert len(cold) >= 1
+        assert any(item["id"] == "cold-001" for item in cold)

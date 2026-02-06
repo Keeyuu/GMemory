@@ -65,6 +65,8 @@ class Memory:
     created_at: int = field(default_factory=lambda: int(time.time()))
     updated_at: int = field(default_factory=lambda: int(time.time()))
     superseded_by: Optional[str] = None  # ID of memory that replaces this one
+    access_count: int = 0
+    last_accessed_at: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -91,6 +93,8 @@ class Memory:
             created_at=data.get("created_at", int(time.time())),
             updated_at=data.get("updated_at", int(time.time())),
             superseded_by=data.get("superseded_by"),
+            access_count=data.get("access_count", 0) or 0,
+            last_accessed_at=data.get("last_accessed_at"),
         )
 
 

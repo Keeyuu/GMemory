@@ -17,19 +17,13 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Options
-SKIP_SKILLS=false
 SKIP_MODULES=false
 DEV_MODE=false
 FORCE_MODE=false
-SKILLS_DIR=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --skip-skills)
-            SKIP_SKILLS=true
-            shift
-            ;;
         --skip-modules)
             SKIP_MODULES=true
             shift
@@ -42,10 +36,6 @@ while [[ $# -gt 0 ]]; do
             FORCE_MODE=true
             shift
             ;;
-        --skills-dir)
-            SKILLS_DIR="$2"
-            shift 2
-            ;;
         -h|--help)
             echo "GMemory Installation Script"
             echo ""
@@ -55,8 +45,6 @@ while [[ $# -gt 0 ]]; do
             echo "  --dev           Install with dev dependencies"
             echo "  --force         Force reinstall (uninstall first)"
             echo "  --skip-modules  Skip Python module installation"
-            echo "  --skip-skills   Skip OpenCode skills installation"
-            echo "  --skills-dir    Custom skills directory"
             echo "  -h, --help     Show this help"
             exit 0
             ;;
@@ -128,7 +116,7 @@ install_modules() {
 
     if $USE_UV; then
         if $DEV_MODE; then
-            uv pip install -e "$SCRIPT_DIR" --reinstall
+            uv pip install -e "$SCRIPT_DIR[dev]" --reinstall
         else
             uv pip install -e "$SCRIPT_DIR" --reinstall
         fi
@@ -158,24 +146,6 @@ verify_installation() {
     fi
 }
 
-install_skills() {
-    if $SKIP_SKILLS; then
-        echo ""
-        echo -e "${YELLOW}Step 3: Skipping skills installation (--skip-skills)${NC}"
-        return
-    fi
-
-    echo ""
-    echo -e "${CYAN}Step 3: Installing/Updating Skills for OpenCode...${NC}"
-
-    skills_args=()
-    if [ -n "$SKILLS_DIR" ]; then
-        skills_args+=("--skills-dir" "$SKILLS_DIR")
-    fi
-
-    "$SCRIPT_DIR/install-skills.sh" "${skills_args[@]}"
-}
-
 if ! $SKIP_MODULES; then
     install_modules
     verify_installation
@@ -184,11 +154,9 @@ else
     echo -e "${YELLOW}Step 1: Skipping module installation (--skip-modules)${NC}"
 fi
 
-install_skills
-
- # Step 4: Initialize/Verify data directory
+# Step 3: Initialize/Verify data directory
 echo ""
-echo -e "${CYAN}Step 4: Verifying data directory...${NC}"
+echo -e "${CYAN}Step 3: Verifying data directory...${NC}"
 
 DATA_DIR="$HOME/.gmemory"
 if [ ! -d "$DATA_DIR" ]; then

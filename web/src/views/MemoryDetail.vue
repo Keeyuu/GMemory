@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMemories } from '../composables/useMemories'
 import type { Memory } from '../types/memory'
@@ -16,6 +16,19 @@ const saving = ref(false)
 const isEditing = ref(false)
 const showDeleteConfirm = ref(false)
 
+const previewText = computed(() => {
+  if (!memory.value) return ''
+  const preview = memory.value.preview?.trim()
+  if (preview) {
+    return preview
+  }
+  const normalized = (memory.value.content || '').replace(/\s+/g, ' ').trim()
+  if (normalized.length <= 180) {
+    return normalized
+  }
+  return `${normalized.slice(0, 180)}...`
+})
+
 const loadData = async () => {
   loading.value = true
   try {
@@ -24,7 +37,7 @@ const loadData = async () => {
     if (data) {
       memory.value = data
     } else {
-      router.push({ name: 'memories' })
+      router.push({ name: 'search' })
     }
   } finally {
     loading.value = false
@@ -50,7 +63,7 @@ const handleDelete = async () => {
   saving.value = true
   try {
     await deleteMemory(memory.value.id)
-    router.push({ name: 'memories' })
+    router.push({ name: 'search' })
   } finally {
     saving.value = false
     showDeleteConfirm.value = false
@@ -77,8 +90,8 @@ onMounted(loadData)
       class="flex items-center gap-2 text-space-400 hover:text-white transition-colors group"
     >
       <div class="i-carbon-arrow-left w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-      <span>Back to Memories</span>
-    </button>
+        <span>Back to Search</span>
+      </button>
 
     <div v-if="loading" class="card p-8 animate-pulse space-y-4">
       <div class="h-6 w-32 bg-space-800 rounded" />
@@ -155,8 +168,15 @@ onMounted(loadData)
           </div>
         </div>
 
-        <!-- Content Card -->
+        <!-- Preview Card -->
+        <div class="card p-6">
+          <h2 class="text-sm uppercase tracking-wider text-space-400 mb-3">Preview</h2>
+          <p class="text-space-200 text-sm leading-relaxed whitespace-pre-wrap">{{ previewText }}</p>
+        </div>
+
+        <!-- Full Content Card -->
         <div class="card p-8">
+          <h2 class="text-sm uppercase tracking-wider text-space-400 mb-4">Full Content</h2>
           <div class="prose prose-invert max-w-none font-mono text-sm leading-relaxed whitespace-pre-wrap">
             {{ memory.content }}
           </div>

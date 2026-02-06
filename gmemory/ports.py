@@ -67,6 +67,16 @@ class MemoryReadPort(Protocol):
         """Get all unique tags with their counts."""
         ...
 
+    def get_hot_memories(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get most frequently accessed memories."""
+        ...
+
+    def get_cold_memories(
+        self, limit: int = 5, min_age_days: int = 7
+    ) -> List[Dict[str, Any]]:
+        """Get least accessed memories for curation."""
+        ...
+
 
 @runtime_checkable
 class MemoryWritePort(Protocol):
@@ -104,6 +114,10 @@ class MemoryWritePort(Protocol):
         superseded_by: str,
     ) -> None:
         """Mark a memory as superseded by another."""
+        ...
+
+    def touch_memory_access(self, memory_id: str) -> bool:
+        """Increment access count for a memory."""
         ...
 
 
@@ -221,7 +235,7 @@ class DiagnosticsPort(Protocol):
     Single responsibility: Health checks, stats, and lifecycle management.
     """
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""
         ...
 

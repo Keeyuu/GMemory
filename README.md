@@ -2,7 +2,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-136%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-156%20passed-brightgreen.svg)]()
 
 **Local Agent Persistent Memory System for OpenCode**
 
@@ -12,7 +12,7 @@
 
 GMemory is a lightweight CLI tool that provides persistent memory for AI coding agents. It scans OpenCode session logs, enables distillation of key information, and stores memories in a local SQLite database with hybrid vector + full-text search.
 
-**Design Philosophy**: Minimal dependencies, local-first, CLI-driven. No background services, no web UI, no cloud dependencies.
+**Design Philosophy**: Minimal dependencies, local-first, CLI-driven. No cloud dependencies.
 
 ## Features
 
@@ -57,9 +57,6 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 # Skip Python module installation
 powershell -ExecutionPolicy Bypass -File install.ps1 -SkipModules
-
-# Skip skills installation
-powershell -ExecutionPolicy Bypass -File install.ps1 -SkipSkills
 ```
 
 **Linux/macOS:**
@@ -70,15 +67,11 @@ chmod +x install.sh && ./install.sh
 
 # Skip Python module installation
 ./install.sh --skip-modules
-
-# Skip skills installation
-./install.sh --skip-skills
 ```
 
 The install script will:
 1. Install GMemory package (can be skipped)
-2. Install OpenCode skills (can be skipped)
-3. Create data directory `~/.gmemory/`
+2. Create data directory `~/.gmemory/`
 
 ### Manual Install
 
@@ -88,9 +81,6 @@ pip install -e .
 
 # Or with uv (recommended)
 uv pip install -e .
-
-# Install skills manually (optional)
-cp -r skills/* ~/.config/opencode/skills/
 ```
 
 ### Install Options
@@ -100,39 +90,8 @@ cp -r skills/* ~/.config/opencode/skills/
 | `--dev` | Install with dev dependencies (pytest, mypy) |
 | `--force` | Force reinstall (uninstall first, then install) |
 | `--skip-modules` | Skip Python module installation |
-| `--skip-skills` | Skip OpenCode skills installation |
-| `--skills-dir <path>` | Custom skills directory |
 
 **Upgrade**: Simply re-run the install script to upgrade to the latest version.
-
-### Skills Installation (npx skills users)
-
-If you manage skills via `npx skills` CLI (for OpenCode, GitHub Copilot, etc.):
-
-**Windows:**
-```powershell
-powershell -ExecutionPolicy Bypass -File install-skills.ps1
-```
-
-**Linux/macOS:**
-```bash
-chmod +x install-skills.sh && ./install-skills.sh
-```
-
-**Options:**
-```bash
-# Install for specific agents
-./install-skills.sh --agents opencode,github-copilot
-
-# Custom skills source directory
-./install-skills.sh --skills-dir /path/to/skills
-
-# List available skills
-./install-skills.sh --list
-
-# Uninstall skills
-./install-skills.sh --uninstall
-```
 
 **Requirements**: Python 3.10+, sqlite-vec, fastembed
 
@@ -150,6 +109,85 @@ gmemory search "authentication pattern" --compact
 
 # 4. Get full content
 gmemory get <memory-id>
+```
+
+## MCP Server
+
+```bash
+# Start MCP server (stdio)
+gmemory-mcp
+
+# Equivalent
+python -m gmemory.mcp
+```
+
+Use `docs/mcp-config.example.json` for client configuration.
+
+## Web API and Frontend
+
+```bash
+# Start Web API (default: 127.0.0.1:8765)
+gmemory-web
+
+# Start frontend dev server
+cd web
+npm install
+npm run dev
+```
+
+Production preview:
+
+```bash
+cd web
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4173
+```
+
+Run Web API with PM2 (background keep-alive):
+
+```bash
+# Windows (recommended, no extra terminal window)
+pm2 start "C:/Code/GMemory/.venv/Scripts/pythonw.exe" --name gmemory-web --cwd "C:/Code/GMemory" -- -m gmemory.webapi
+
+# Cross-platform/basic form
+pm2 start uv --name gmemory-web --cwd "C:/Code/GMemory" -- run gmemory-web
+
+pm2 save
+pm2 status gmemory-web
+```
+
+Windows note: when PM2 launches `uv.exe`, a terminal window may appear. Use the `pythonw.exe` command above to run without the extra console window.
+
+### Preview-First Workflow (Web)
+
+- List/search/dashboard cards render `preview` first.
+- Memory detail page renders `Preview` and `Full Content` as separate sections.
+- Missing preview is treated as non-fatal: UI falls back to derived preview from content.
+
+### Memory Utilization Analytics
+
+- `access_count` and `last_accessed_at` are stored on each memory record (schema migration v6).
+- Non-web ID fetches (`gmemory get`, MCP `gmemory_get`) increment access counters by default.
+- Web detail fetch (`GET /api/memories/{id}`) is excluded from counting to avoid UI-read inflation.
+- `GET /api/stats` includes `top_hot` and `top_cold` lists for curation.
+
+### Manual Acceptance Checklist
+
+1. Open dashboard and verify `Top Hot` / `Top Cold` sections render.
+2. Click a hot memory and verify detail page shows both `Preview` and `Full Content`.
+3. Call web detail endpoint and verify access counter does not increase.
+4. Run `gmemory get <id>` and verify access counter increases.
+
+### Playwright MCP with Edge
+
+If you use browser MCP with Edge, configure OpenCode MCP as:
+
+```json
+"playwright": {
+  "command": ["npx", "-y", "@playwright/mcp@latest", "--browser", "msedge"],
+  "enabled": true,
+  "type": "local"
+}
 ```
 
 ## Commands Reference
@@ -553,7 +591,7 @@ gmemory lifecycle-stats            # View statistics
 | Storage | SQLite + sqlite-vec | SQLite + Chroma | Tantivy + usearch | SQLite + sqlite-vec |
 | Search | Hybrid (vec+FTS) | Hybrid (vec+FTS) | BM25 + semantic | Vector |
 | Embeddings | Local (FastEmbed) | Local/Remote | Local (multiple) | Local (Xenova) |
-| Interface | CLI only | Hooks + Web UI | CLI + TUI | Plugin + Web UI |
+| Interface | CLI + MCP + Local Web UI | Hooks + Web UI | CLI + TUI | Plugin + Web UI |
 | Background | None | Worker service | Optional daemon | Plugin hooks |
 
 ### Why GMemory?
@@ -567,12 +605,13 @@ gmemory lifecycle-stats            # View statistics
 
 | In Scope | Out of Scope |
 |----------|--------------|
-| CLI tool for OpenCode | Web UI / Dashboard |
-| Local SQLite storage | Cloud sync / Remote storage |
+| CLI tool for OpenCode | Cloud sync / Remote storage |
+| Local SQLite storage | External managed databases |
 | Local embeddings (FastEmbed) | External embedding APIs |
 | Manual distillation workflow | Automatic summarization |
 | Single-user local use | Multi-user / Collaboration |
-| Batch CLI operations | Background services / Daemons |
+| Batch CLI operations | Managed cloud service |
+| Local MCP server + local Web UI | Multi-tenant hosted platform |
 
 ## Testing
 

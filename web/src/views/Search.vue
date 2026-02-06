@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useMemories } from '../composables/useMemories'
 import MemoryCard from '../components/MemoryCard.vue'
 
@@ -13,6 +14,8 @@ function simpleDebounce<T extends (...args: any[]) => any>(fn: T, delay: number)
 }
 
 const { searchMemories } = useMemories()
+const route = useRoute()
+const router = useRouter()
 
 const query = ref('')
 const mode = ref('hybrid')
@@ -50,11 +53,30 @@ const debouncedSearch = simpleDebounce(performSearch, 500)
 
 watch(query, () => {
   debouncedSearch()
+  if (query.value !== (route.query.q as string || '')) {
+    router.replace({ name: 'search', query: query.value ? { q: query.value } : {} })
+  }
 })
 
 watch(mode, () => {
   if (query.value) performSearch()
 })
+
+watch(
+  () => route.query.q,
+  (q) => {
+    const qv = typeof q === 'string' ? q : ''
+    if (qv !== query.value) {
+      query.value = qv
+      if (!qv) {
+        results.value = []
+        hasSearched.value = false
+        total.value = 0
+      }
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>

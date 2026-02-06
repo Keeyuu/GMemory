@@ -16,7 +16,7 @@ from gmemory.storage.migrations import apply_migrations, get_migration_status
 logger = logging.getLogger(__name__)
 
 # Schema version for migration tracking
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class MemoryDatabase:
@@ -918,7 +918,7 @@ class MemoryDatabase:
             return ProcessedSession.from_dict(dict(row))
         return None
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""
         cursor = self.conn.execute("SELECT COUNT(*) FROM memories")
         memory_count = cursor.fetchone()[0]
@@ -939,6 +939,84 @@ class MemoryDatabase:
             "processed_sessions": session_count,
             "scan_runs": scan_runs,
             "scan_errors": scan_errors,
+        }
+
+    def touch_memory_access(self, memory_id: str) -> bool:
+        """Increment access count for a memory and update access timestamp."""
+        now = int(time.time())
+        with self.conn:
+            cursor = self.conn.execute(
+                """
+                UPDATE memories
+                SET access_count = COALESCE(access_count, 0) + 1,
+                    last_accessed_at = ?
+                WHERE id = ?
+                """,
+                (now, memory_id),
+            )
+        return cursor.rowcount > 0
+
+    def get_hot_memories(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get most frequently accessed active memories."""
+        cursor = self.conn.execute(
+            """
+            SELECT id, content, tags, importance, project_name,
+                   created_at, updated_at, access_count, last_accessed_at
+            FROM memories
+            WHERE (superseded_by IS NULL OR superseded_by = '')
+              AND COALESCE(access_count, 0) > 0
+            ORDER BY access_count DESC, COALESCE(last_accessed_at, 0) DESC, updated_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [self._memory_row_to_summary(row) for row in cursor.fetchall()]
+
+    def get_cold_memories(
+        self, limit: int = 5, min_age_days: int = 7
+    ) -> List[Dict[str, Any]]:
+        """Get least accessed active memories that are old enough for curation."""
+        cutoff = int(time.time()) - (min_age_days * 24 * 3600)
+        cursor = self.conn.execute(
+            """
+            SELECT id, content, tags, importance, project_name,
+                   created_at, updated_at, access_count, last_accessed_at
+            FROM memories
+            WHERE (superseded_by IS NULL OR superseded_by = '')
+              AND created_at <= ?
+            ORDER BY COALESCE(access_count, 0) ASC,
+                     COALESCE(last_accessed_at, 0) ASC,
+                     updated_at ASC
+            LIMIT ?
+            """,
+            (cutoff, limit),
+        )
+        return [self._memory_row_to_summary(row) for row in cursor.fetchall()]
+
+    def _memory_row_to_summary(self, row: sqlite3.Row) -> Dict[str, Any]:
+        """Build a compact summary payload for dashboard-oriented memory lists."""
+        content = row["content"] or ""
+        preview = content[:150] + "..." if len(content) > 150 else content
+
+        tags_raw = row["tags"]
+        if isinstance(tags_raw, str):
+            try:
+                tags = json.loads(tags_raw)
+            except json.JSONDecodeError:
+                tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
+        else:
+            tags = tags_raw or []
+
+        return {
+            "id": row["id"],
+            "preview": preview,
+            "tags": tags,
+            "importance": row["importance"],
+            "project_name": row["project_name"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "access_count": row["access_count"] or 0,
+            "last_accessed_at": row["last_accessed_at"],
         }
 
     def get_diagnostics(self) -> Dict[str, Any]:

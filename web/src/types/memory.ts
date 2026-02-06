@@ -19,9 +19,24 @@ export interface Memory {
   scoring?: ScoringBreakdown  // 详细分数分解（搜索时使用 --explain）
   tokens?: number
   project_path?: string
+  project_name?: string
   agent?: string
   created_at?: string
   updated_at?: string
+  access_count?: number
+  last_accessed_at?: string
+}
+
+export interface MemoryStatItem {
+  id: string
+  preview: string
+  tags: string[]
+  importance: 'high' | 'medium' | 'low'
+  project_name?: string
+  created_at?: string
+  updated_at?: string
+  access_count: number
+  last_accessed_at?: string
 }
 
 export interface MemoryStats {
@@ -30,6 +45,8 @@ export interface MemoryStats {
   unprocessed_sessions: number
   scan_runs: number
   scan_errors: number
+  top_hot: MemoryStatItem[]
+  top_cold: MemoryStatItem[]
   by_project: Record<string, number>
   by_importance: {
     high: number

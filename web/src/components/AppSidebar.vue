@@ -1,11 +1,23 @@
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { useMemories } from '../composables/useMemories'
+import type { MemoryStats } from '../types/memory'
 
 const route = useRoute()
+const { getStats } = useMemories()
+const stats = ref<MemoryStats | null>(null)
+
+onMounted(async () => {
+  try {
+    stats.value = await getStats()
+  } catch {
+    stats.value = null
+  }
+})
 
 const navItems = [
   { name: 'dashboard', label: 'Dashboard', icon: 'i-carbon-dashboard' },
-  { name: 'memories', label: 'Memories', icon: 'i-carbon-catalog' },
   { name: 'search', label: 'Search', icon: 'i-carbon-search' },
 ]
 
@@ -54,11 +66,11 @@ const isActive = (name: string) => {
         <div class="space-y-2">
           <div class="flex justify-between text-sm">
             <span class="text-space-400">Memories</span>
-            <span class="font-mono text-neural-400">--</span>
+            <span class="font-mono text-neural-400">{{ stats?.total_memories ?? '--' }}</span>
           </div>
           <div class="flex justify-between text-sm">
             <span class="text-space-400">Sessions</span>
-            <span class="font-mono text-space-300">--</span>
+            <span class="font-mono text-space-300">{{ stats?.processed_sessions ?? '--' }}</span>
           </div>
         </div>
       </div>

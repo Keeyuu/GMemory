@@ -5,6 +5,12 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
 const memories = ref<Memory[]>([])
 
+interface ListMemoriesOptions {
+  limit?: number
+  offset?: number
+  importance?: 'high' | 'medium' | 'low'
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -31,8 +37,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function useMemories() {
-  const getMemories = async (): Promise<Memory[]> => {
-    const data = await request<{ results: Memory[] }>('/memories?limit=200&offset=0')
+  const getMemories = async (options: ListMemoriesOptions = {}): Promise<Memory[]> => {
+    const params = new URLSearchParams({
+      limit: String(options.limit ?? 200),
+      offset: String(options.offset ?? 0),
+    })
+
+    if (options.importance) {
+      params.set('importance', options.importance)
+    }
+
+    const data = await request<{ results: Memory[] }>(`/memories?${params.toString()}`)
     memories.value = data.results
     return data.results
   }
@@ -90,7 +105,7 @@ export function useMemories() {
       q: query,
       mode,
       limit: '20',
-      compact: 'false',
+      compact: 'true',
       explain: 'true',
     })
     return request<SearchResult>(`/search?${params.toString()}`)

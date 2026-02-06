@@ -1,13 +1,23 @@
 """Get command for GMemory - retrieve full memory content by IDs."""
 
+import time
 from typing import List, Dict, Any, Optional
 
 from gmemory.storage.database import MemoryDatabase
 
 
+def _build_preview(content: str, max_len: int = 180) -> str:
+    """Build preview text from full content for preview-first UI."""
+    normalized = (content or "").replace("\n", " ").strip()
+    if len(normalized) <= max_len:
+        return normalized
+    return f"{normalized[:max_len]}..."
+
+
 def get_memories(
     ids: List[str],
     include_metadata: bool = True,
+    track_access: bool = True,
 ) -> Dict[str, Any]:
     """
     Retrieve full memory content by IDs.
@@ -19,6 +29,7 @@ def get_memories(
     Args:
         ids: List of memory IDs to retrieve.
         include_metadata: Include metadata (project, agent, timestamps).
+        track_access: If True, increment access count for each found memory.
 
     Returns:
         Dict containing:
@@ -37,9 +48,19 @@ def get_memories(
         for memory_id in ids:
             memory = db.get_memory(memory_id)
             if memory:
+                access_count = memory.access_count
+                last_accessed_at = memory.last_accessed_at
+                if track_access:
+                    if db.touch_memory_access(memory_id):
+                        access_count += 1
+                        # Avoid opening another read transaction just for response metadata.
+                        last_accessed_at = int(time.time())
+
+                preview = _build_preview(memory.content)
                 if include_metadata:
                     result = {
                         "id": memory.id,
+                        "preview": preview,
                         "content": memory.content,
                         "tags": memory.tags,
                         "importance": memory.importance,
@@ -50,10 +71,13 @@ def get_memories(
                         "source_session_id": memory.source_session_id,
                         "created_at": memory.created_at,
                         "updated_at": memory.updated_at,
+                        "access_count": access_count,
+                        "last_accessed_at": last_accessed_at,
                     }
                 else:
                     result = {
                         "id": memory.id,
+                        "preview": preview,
                         "content": memory.content,
                         "tags": memory.tags,
                     }

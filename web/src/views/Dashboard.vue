@@ -12,14 +12,35 @@ const recentMemories = ref<Memory[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 
+const formatAccessTime = (value?: string | number | null) => {
+  if (!value) return 'Never accessed'
+  const parsed =
+    typeof value === 'number'
+      ? (value < 1_000_000_000_000 ? value * 1000 : value)
+      : value
+  const date = new Date(parsed)
+  if (Number.isNaN(date.getTime())) return 'Never accessed'
+  return date.toLocaleDateString()
+}
+
 onMounted(async () => {
   try {
-    const [statsData, recentData] = await Promise.all([
+    const [statsResult, recentResult] = await Promise.allSettled([
       getStats(),
       getRecentMemories(7, 6),
     ])
-    stats.value = statsData
-    recentMemories.value = recentData
+
+    if (statsResult.status === 'fulfilled') {
+      stats.value = statsResult.value
+    }
+
+    if (recentResult.status === 'fulfilled') {
+      recentMemories.value = recentResult.value
+    }
+
+    if (statsResult.status === 'rejected' && recentResult.status === 'rejected') {
+      error.value = 'Failed to load dashboard data'
+    }
   } catch (e) {
     error.value = 'Failed to load data'
   } finally {
@@ -86,6 +107,57 @@ onMounted(async () => {
           :key="memory.id"
           :memory="memory"
         />
+      </div>
+    </section>
+
+    <!-- Hot/Cold Curation -->
+    <section class="grid lg:grid-cols-2 gap-6">
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <div class="i-carbon-fire w-5 h-5 text-red-400" />
+          Top Hot
+        </h2>
+        <div v-if="(stats?.top_hot?.length ?? 0) === 0" class="text-sm text-space-500">
+          No hot memories yet.
+        </div>
+        <div v-else class="space-y-3">
+          <router-link
+            v-for="item in stats?.top_hot"
+            :key="item.id"
+            :to="{ name: 'memory-detail', params: { id: item.id } }"
+            class="block rounded-lg border border-space-800 hover:border-red-500/50 transition-colors p-3"
+          >
+            <p class="text-sm text-space-200 line-clamp-2 mb-2">{{ item.preview }}</p>
+            <div class="flex items-center justify-between text-xs text-space-500">
+              <span>{{ item.access_count }} accesses</span>
+              <span>{{ formatAccessTime(item.last_accessed_at) }}</span>
+            </div>
+          </router-link>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <div class="i-carbon-snow w-5 h-5 text-blue-400" />
+          Top Cold
+        </h2>
+        <div v-if="(stats?.top_cold?.length ?? 0) === 0" class="text-sm text-space-500">
+          No cold memories yet.
+        </div>
+        <div v-else class="space-y-3">
+          <router-link
+            v-for="item in stats?.top_cold"
+            :key="item.id"
+            :to="{ name: 'memory-detail', params: { id: item.id } }"
+            class="block rounded-lg border border-space-800 hover:border-blue-500/50 transition-colors p-3"
+          >
+            <p class="text-sm text-space-200 line-clamp-2 mb-2">{{ item.preview }}</p>
+            <div class="flex items-center justify-between text-xs text-space-500">
+              <span>{{ item.access_count }} accesses</span>
+              <span>{{ formatAccessTime(item.last_accessed_at) }}</span>
+            </div>
+          </router-link>
+        </div>
       </div>
     </section>
 
