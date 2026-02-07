@@ -205,6 +205,50 @@ configure_opencode_mcp() {
     fi
 }
 
+sync_opencode_prompts() {
+    echo ""
+    echo -e "${CYAN}Step 5: Syncing OpenCode prompt templates (optional)...${NC}"
+
+    TEMPLATE_ROOT="$SCRIPT_DIR/opencode"
+    if [ ! -d "$TEMPLATE_ROOT" ]; then
+        echo -e "${YELLOW}[INFO] Prompt templates not found in project: $TEMPLATE_ROOT${NC}"
+        return
+    fi
+
+    OPENCODE_DIR="$HOME/.config/opencode"
+    if [ ! -d "$OPENCODE_DIR" ]; then
+        echo -e "${YELLOW}[INFO] OpenCode directory not found: $OPENCODE_DIR${NC}"
+        echo -e "${YELLOW}[INFO] Skip prompt sync; rerun install after OpenCode initializes this directory.${NC}"
+        return
+    fi
+
+    sync_prompt_file() {
+        local source_path="$1"
+        local target_dir="$2"
+
+        if [ ! -f "$source_path" ]; then
+            echo -e "${YELLOW}[WARN] Missing prompt template: $source_path${NC}"
+            return
+        fi
+
+        mkdir -p "$target_dir"
+        cp "$source_path" "$target_dir/"
+        echo -e "${GREEN}[OK] Synced prompt: $target_dir/$(basename "$source_path")${NC}"
+        SYNCED_COUNT=$((SYNCED_COUNT + 1))
+    }
+
+    SYNCED_COUNT=0
+    sync_prompt_file "$TEMPLATE_ROOT/commands/refine-memory.md" "$OPENCODE_DIR/commands"
+    sync_prompt_file "$TEMPLATE_ROOT/commands/scan-memories.md" "$OPENCODE_DIR/commands"
+    sync_prompt_file "$TEMPLATE_ROOT/agents/knowledge-archivist.md" "$OPENCODE_DIR/agents"
+
+    if [ "$SYNCED_COUNT" -eq 0 ]; then
+        echo -e "${YELLOW}[WARN] No prompt templates were synced${NC}"
+    else
+        echo -e "${GREEN}[OK] Synced $SYNCED_COUNT OpenCode prompt template(s)${NC}"
+    fi
+}
+
 if ! $SKIP_MODULES; then
     install_modules
     verify_installation
@@ -233,6 +277,7 @@ else
 fi
 
 configure_opencode_mcp
+sync_opencode_prompts
 
 # Done
 echo ""

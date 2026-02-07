@@ -177,6 +177,59 @@ function Configure-OpenCodeMCP {
     }
 }
 
+function Sync-OpenCodePrompts {
+    Write-Host ""
+    Write-Host "Step 5: Syncing OpenCode prompt templates (optional)..." -ForegroundColor Cyan
+
+    $TemplateRoot = Join-Path $ScriptDir "opencode"
+    if (-not (Test-Path $TemplateRoot)) {
+        Write-Host "[INFO] Prompt templates not found in project: $TemplateRoot" -ForegroundColor Yellow
+        return
+    }
+
+    $OpenCodeDir = Join-Path $env:USERPROFILE ".config\opencode"
+    if (-not (Test-Path $OpenCodeDir)) {
+        Write-Host "[INFO] OpenCode directory not found: $OpenCodeDir" -ForegroundColor Yellow
+        Write-Host "[INFO] Skip prompt sync; rerun install after OpenCode initializes this directory." -ForegroundColor Yellow
+        return
+    }
+
+    $Mappings = @(
+        @{
+            Source = Join-Path $TemplateRoot "commands\refine-memory.md"
+            TargetDir = Join-Path $OpenCodeDir "commands"
+        },
+        @{
+            Source = Join-Path $TemplateRoot "commands\scan-memories.md"
+            TargetDir = Join-Path $OpenCodeDir "commands"
+        },
+        @{
+            Source = Join-Path $TemplateRoot "agents\knowledge-archivist.md"
+            TargetDir = Join-Path $OpenCodeDir "agents"
+        }
+    )
+
+    $SyncedCount = 0
+    foreach ($Item in $Mappings) {
+        if (-not (Test-Path $Item.Source)) {
+            Write-Host "[WARN] Missing prompt template: $($Item.Source)" -ForegroundColor Yellow
+            continue
+        }
+
+        New-Item -ItemType Directory -Path $Item.TargetDir -Force | Out-Null
+        $TargetPath = Join-Path $Item.TargetDir (Split-Path $Item.Source -Leaf)
+        Copy-Item -Path $Item.Source -Destination $TargetPath -Force
+        Write-Host "[OK] Synced prompt: $TargetPath" -ForegroundColor Green
+        $SyncedCount++
+    }
+
+    if ($SyncedCount -eq 0) {
+        Write-Host "[WARN] No prompt templates were synced" -ForegroundColor Yellow
+    } else {
+        Write-Host "[OK] Synced $SyncedCount OpenCode prompt template(s)" -ForegroundColor Green
+    }
+}
+
 if (-not $SkipModules) {
     Install-Modules
     Verify-Installation
@@ -205,6 +258,7 @@ if (-not (Test-Path $DataDir)) {
 }
 
 Configure-OpenCodeMCP
+Sync-OpenCodePrompts
 
 # Done
 Write-Host ""
