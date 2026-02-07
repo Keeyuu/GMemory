@@ -5,7 +5,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from gmemory.models import Memory
+from gmemory.models import Memory, Message, ProcessedSession, Session
 from gmemory.storage.database import MemoryDatabase
 
 
@@ -242,3 +242,44 @@ class TestMemoryDatabase:
         assert hot[0]["access_count"] >= 2
         assert len(cold) >= 1
         assert any(item["id"] == "cold-001" for item in cold)
+
+    def test_imported_session_queue_respects_processed_markers(self, temp_db):
+        """Imported sessions should be fetchable until marked processed."""
+        session = Session(
+            session_id="imported-001",
+            agent="opencode",
+            project_path="C:/proj",
+            project_name="proj",
+            started_at="1770000000",
+            messages=[Message(role="user", content="hello")],
+        )
+
+        created = temp_db.upsert_imported_session(
+            session=session,
+            source_scanner="opencode",
+            source_path="C:/external",
+        )
+        assert created is True
+
+        updated = temp_db.upsert_imported_session(
+            session=session,
+            source_scanner="opencode",
+            source_path="C:/external",
+        )
+        assert updated is False
+
+        pending = temp_db.get_unprocessed_imported_sessions(limit=10, agent="opencode")
+        assert len(pending) == 1
+        assert pending[0].session_id == "imported-001"
+
+        assert temp_db.count_imported_sessions("opencode") == 1
+        assert temp_db.count_unprocessed_imported_sessions("opencode") == 1
+
+        temp_db.add_processed_session(
+            ProcessedSession(agent="opencode", session_id="imported-001")
+        )
+
+        assert temp_db.count_unprocessed_imported_sessions("opencode") == 0
+        assert (
+            temp_db.get_unprocessed_imported_sessions(limit=10, agent="opencode") == []
+        )

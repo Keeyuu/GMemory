@@ -61,3 +61,38 @@ export interface SearchResult {
   total: number
   mode: string
 }
+
+export interface BackupItem {
+  id: string
+  reason: string
+  created_at: number
+  created_at_iso: string
+  path: string
+  db_file: string
+  config_file: string
+  source_db: string
+  size_bytes: number
+}
+
+export interface BackupSettings {
+  enabled: boolean
+  path: string
+  max_backups: number
+  auto_backup_time: string
+  last_auto_backup_date?: string | null
+}
+
+export interface ExternalImportResult {
+  queued: number
+  updated: number
+  failed: number
+  imported?: number
+  total_sessions: number
+  source_total_sessions: number
+  scanner_type: string
+  folder_path: string
+  pending_unprocessed: number
+  processed_sessions: number
+  total_imported_sessions: number
+  errors: Array<{ session_id: string; error: string }>
+}

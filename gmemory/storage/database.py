@@ -9,7 +9,7 @@ import uuid
 import sqlite_vec
 
 from gmemory.config import config
-from gmemory.models import Memory, ProcessedSession
+from gmemory.models import Memory, ProcessedSession, Session
 from gmemory.validation import validate_memory
 from gmemory.storage.migrations import apply_migrations, get_migration_status
 
@@ -162,6 +162,25 @@ class MemoryDatabase:
                     PRIMARY KEY (agent, session_id)
                 );
             """)
+
+            # Imported sessions queue (external providers -> local pending backlog)
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS imported_sessions (
+                    session_id TEXT NOT NULL,
+                    agent TEXT NOT NULL,
+                    source_scanner TEXT NOT NULL,
+                    source_path TEXT,
+                    payload TEXT NOT NULL,
+                    imported_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (agent, session_id)
+                );
+                """
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_imported_sessions_imported_at ON imported_sessions(imported_at)"
+            )
 
     def _validate_vector_dimension(self):
         """Validate that vector table dimension matches expected dimension.
@@ -934,6 +953,136 @@ class MemoryDatabase:
         if row:
             return ProcessedSession.from_dict(dict(row))
         return None
+
+    def upsert_imported_session(
+        self,
+        session: Session,
+        source_scanner: str,
+        source_path: Optional[str] = None,
+    ) -> bool:
+        """Insert or update an imported session record.
+
+        Returns:
+            True if inserted as a new row, False if existing row was updated.
+        """
+        now = int(time.time())
+        payload = json.dumps(session.to_dict(), ensure_ascii=False)
+
+        exists_cursor = self.conn.execute(
+            "SELECT 1 FROM imported_sessions WHERE agent = ? AND session_id = ?",
+            (session.agent, session.session_id),
+        )
+        existed = exists_cursor.fetchone() is not None
+
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO imported_sessions (
+                    session_id, agent, source_scanner, source_path, payload, imported_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(agent, session_id) DO UPDATE SET
+                    source_scanner = excluded.source_scanner,
+                    source_path = excluded.source_path,
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    session.session_id,
+                    session.agent,
+                    source_scanner,
+                    source_path,
+                    payload,
+                    now,
+                    now,
+                ),
+            )
+
+        return not existed
+
+    def get_unprocessed_imported_sessions(
+        self,
+        limit: int = 10,
+        agent: Optional[str] = None,
+    ) -> List[Session]:
+        """Get imported sessions that are not marked processed yet."""
+        params: List[Any]
+        if agent and agent != "all":
+            params = [agent, limit]
+            cursor = self.conn.execute(
+                """
+                SELECT i.payload
+                FROM imported_sessions i
+                LEFT JOIN processed_sessions p
+                    ON p.agent = i.agent AND p.session_id = i.session_id
+                WHERE i.agent = ? AND p.session_id IS NULL
+                ORDER BY i.imported_at ASC
+                LIMIT ?
+                """,
+                params,
+            )
+        else:
+            params = [limit]
+            cursor = self.conn.execute(
+                """
+                SELECT i.payload
+                FROM imported_sessions i
+                LEFT JOIN processed_sessions p
+                    ON p.agent = i.agent AND p.session_id = i.session_id
+                WHERE p.session_id IS NULL
+                ORDER BY i.imported_at ASC
+                LIMIT ?
+                """,
+                params,
+            )
+
+        sessions: List[Session] = []
+        for row in cursor.fetchall():
+            payload_raw = row["payload"]
+            if not payload_raw:
+                continue
+            try:
+                payload = json.loads(payload_raw)
+                sessions.append(Session.from_dict(payload))
+            except (json.JSONDecodeError, KeyError, TypeError):
+                continue
+
+        return sessions
+
+    def count_imported_sessions(self, agent: Optional[str] = None) -> int:
+        """Count imported sessions in local queue."""
+        if agent and agent != "all":
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) FROM imported_sessions WHERE agent = ?",
+                (agent,),
+            )
+        else:
+            cursor = self.conn.execute("SELECT COUNT(*) FROM imported_sessions")
+        return cursor.fetchone()[0]
+
+    def count_unprocessed_imported_sessions(self, agent: Optional[str] = None) -> int:
+        """Count imported sessions that are still pending processing."""
+        if agent and agent != "all":
+            cursor = self.conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM imported_sessions i
+                LEFT JOIN processed_sessions p
+                    ON p.agent = i.agent AND p.session_id = i.session_id
+                WHERE i.agent = ? AND p.session_id IS NULL
+                """,
+                (agent,),
+            )
+        else:
+            cursor = self.conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM imported_sessions i
+                LEFT JOIN processed_sessions p
+                    ON p.agent = i.agent AND p.session_id = i.session_id
+                WHERE p.session_id IS NULL
+                """
+            )
+        return cursor.fetchone()[0]
 
     def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""

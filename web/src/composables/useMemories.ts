@@ -1,5 +1,12 @@
 import { ref } from 'vue'
-import type { Memory, MemoryStats, SearchResult } from '../types/memory'
+import type {
+  BackupItem,
+  BackupSettings,
+  ExternalImportResult,
+  Memory,
+  MemoryStats,
+  SearchResult,
+} from '../types/memory'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -159,6 +166,53 @@ export function useMemories() {
     return request<SearchResult>(`/search?${params.toString()}`)
   }
 
+  const getBackupSettings = async (): Promise<BackupSettings> => {
+    return request<BackupSettings>('/backup/settings')
+  }
+
+  const updateBackupSettings = async (payload: Partial<BackupSettings>): Promise<{ updated: boolean; settings: BackupSettings }> => {
+    return request<{ updated: boolean; settings: BackupSettings }>('/backup/settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  const listBackups = async (): Promise<BackupItem[]> => {
+    const data = await request<{ backups: BackupItem[] }>('/backup/list')
+    return data.backups
+  }
+
+  const createBackup = async (reason = 'manual'): Promise<boolean> => {
+    const data = await request<{ created: boolean }>('/backup/create', {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+    return data.created
+  }
+
+  const restoreBackup = async (backupId: string): Promise<boolean> => {
+    const data = await request<{ restored: boolean }>('/backup/restore', {
+      method: 'POST',
+      body: JSON.stringify({ backup_id: backupId }),
+    })
+    return data.restored
+  }
+
+  const importExternalProvider = async (
+    folderPath: string,
+    scannerType: string,
+    limit = 500,
+  ): Promise<ExternalImportResult> => {
+    return request<ExternalImportResult>('/import/external', {
+      method: 'POST',
+      body: JSON.stringify({
+        folder_path: folderPath,
+        scanner_type: scannerType,
+        limit,
+      }),
+    })
+  }
+
   return {
     memories,
     getMemories,
@@ -170,5 +224,11 @@ export function useMemories() {
     updateMemory,
     deleteMemory,
     searchMemories,
+    getBackupSettings,
+    updateBackupSettings,
+    listBackups,
+    createBackup,
+    restoreBackup,
+    importExternalProvider,
   }
 }

@@ -7,7 +7,7 @@ from gmemory.storage.database import MemoryDatabase
 from gmemory.scanner.base import ScannerRegistry
 
 # Import to trigger registration
-from gmemory.scanner import opencode  # noqa: F401
+from gmemory.scanner import opencode, copilot  # noqa: F401
 
 
 def get_stats() -> Dict[str, Any]:
@@ -29,18 +29,32 @@ def get_stats() -> Dict[str, Any]:
         db = MemoryDatabase()
         db_stats = db.get_stats()
 
-        # Count sessions using lightweight method (no message loading)
-        scanner = ScannerRegistry.create(
-            name=config.default_agent,
-            incremental=False,  # Don't need state tracking for stats
-        )
-
         total_sessions = 0
-        if scanner:
-            total_sessions = scanner.count_sessions()
+        unprocessed_count = 0
+        requested_scanner = config.default_scanner
 
-        # Unprocessed = total - processed
-        unprocessed_count = max(0, total_sessions - db_stats["processed_sessions"])
+        if requested_scanner == "all":
+            for scanner_name in sorted(ScannerRegistry.list_scanners()):
+                scanner = ScannerRegistry.create(
+                    name=scanner_name,
+                    incremental=False,
+                )
+                if not scanner:
+                    continue
+                scanner_total = scanner.count_sessions()
+                scanner_processed = db.get_processed_session_count(scanner_name)
+                total_sessions += scanner_total
+                unprocessed_count += max(0, scanner_total - scanner_processed)
+        else:
+            scanner_name = requested_scanner
+            scanner = ScannerRegistry.create(
+                name=scanner_name,
+                incremental=False,
+            )
+            if scanner:
+                total_sessions = scanner.count_sessions()
+                scanner_processed = db.get_processed_session_count(scanner_name)
+                unprocessed_count = max(0, total_sessions - scanner_processed)
 
         # Breakdown by project
         by_project = {}

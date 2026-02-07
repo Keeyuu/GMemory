@@ -20,6 +20,8 @@ const navItems = [
   { name: 'dashboard', label: 'Dashboard', icon: 'i-carbon-dashboard' },
   { name: 'memories', label: 'Memories', icon: 'i-carbon-document-view' },
   { name: 'search', label: 'Search', icon: 'i-carbon-search' },
+  { name: 'backup', label: 'Backup', icon: 'i-carbon-data-backup' },
+  { name: 'import', label: 'Import', icon: 'i-carbon-upload' },
 ]
 
 const isActive = (name: string) => {

@@ -132,6 +132,7 @@ class Config:
             },
             "scanner": {
                 "default_agent": "opencode",
+                "default_scanner": "all",
             },
             "search": {
                 "default_mode": "hybrid",
@@ -149,6 +150,12 @@ class Config:
                 "retention_days": 0,  # 0 = no auto-purge
                 "archive_before_purge": True,
                 "auto_compact_threshold": 1000,  # compact after N deletes
+                "backup": {
+                    "enabled": True,
+                    "path": "~/.gmemory/backups",
+                    "max_backups": 20,
+                    "auto_backup_time": "02:00",
+                },
             },
             "project": {
                 "isolation_mode": "none",  # none, filter, database
@@ -200,6 +207,10 @@ class Config:
         except Exception as e:
             logger.warning(f"Failed to load config from {path}: {e}")
 
+    @staticmethod
+    def _home_config_path() -> Path:
+        return Path.home() / ".gmemory" / "config.json"
+
     def _deep_update(self, base: Dict[str, Any], update: Dict[str, Any]) -> None:
         for key, value in update.items():
             if isinstance(value, dict) and key in base and isinstance(base[key], dict):
@@ -227,6 +238,34 @@ class Config:
                 target[part] = {}
             target = target[part]
         target[parts[-1]] = value
+
+    def persist_updates(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist partial config updates to ~/.gmemory/config.json and reload runtime config."""
+        home_config = self._home_config_path()
+        existing: Dict[str, Any] = {}
+
+        if home_config.exists():
+            try:
+                with open(home_config, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        existing = loaded
+            except Exception as e:
+                logger.warning(
+                    f"Failed to read existing home config from {home_config}: {e}"
+                )
+
+        self._deep_update(existing, updates)
+        home_config.parent.mkdir(parents=True, exist_ok=True)
+        with open(home_config, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
+
+        self._deep_update(self._config, updates)
+        return {
+            "success": True,
+            "path": str(home_config),
+            "updated": updates,
+        }
 
     @property
     def db_path(self) -> Path:
@@ -258,6 +297,10 @@ class Config:
     @property
     def default_agent(self) -> str:
         return str(self.get("scanner.default_agent"))
+
+    @property
+    def default_scanner(self) -> str:
+        return str(self.get("scanner.default_scanner", "all"))
 
     # Search configuration properties
     @property
@@ -312,6 +355,22 @@ class Config:
     @property
     def lifecycle_auto_compact_threshold(self) -> int:
         return int(self.get("lifecycle.auto_compact_threshold", 1000))
+
+    @property
+    def lifecycle_backup_enabled(self) -> bool:
+        return bool(self.get("lifecycle.backup.enabled", True))
+
+    @property
+    def lifecycle_backup_path(self) -> str:
+        return str(self.get("lifecycle.backup.path", "~/.gmemory/backups"))
+
+    @property
+    def lifecycle_backup_max_backups(self) -> int:
+        return int(self.get("lifecycle.backup.max_backups", 20))
+
+    @property
+    def lifecycle_backup_auto_time(self) -> str:
+        return str(self.get("lifecycle.backup.auto_backup_time", "02:00"))
 
     # Project isolation properties
     @property

@@ -24,9 +24,7 @@ def register_core_commands(cli: click.Group) -> None:
 
     @cli.command()
     @click.option("--limit", default=5, help="Limit the number of sessions to fetch.")
-    @click.option(
-        "--agent", default="opencode", help="Agent type to fetch sessions for."
-    )
+    @click.option("--agent", default="all", help="Agent type to fetch sessions for.")
     @handle_cli_error
     def fetch(limit, agent):
         """Fetch unprocessed sessions from Agent logs."""

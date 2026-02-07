@@ -89,7 +89,10 @@ def register_config_commands(cli: click.Group) -> None:
                 "dimension": cfg.embedding_dimension,
                 "active_profile": cfg.embedding_active_profile,
             },
-            "scanner": {"default_agent": cfg.default_agent},
+            "scanner": {
+                "default_agent": cfg.default_agent,
+                "default_scanner": cfg.default_scanner,
+            },
             "search": {
                 "default_mode": cfg.search_default_mode,
                 "default_profile": cfg.search_default_profile,
@@ -102,6 +105,12 @@ def register_config_commands(cli: click.Group) -> None:
             "lifecycle": {
                 "retention_days": cfg.lifecycle_retention_days,
                 "archive_before_purge": cfg.lifecycle_archive_before_purge,
+                "backup": {
+                    "enabled": cfg.lifecycle_backup_enabled,
+                    "path": cfg.lifecycle_backup_path,
+                    "max_backups": cfg.lifecycle_backup_max_backups,
+                    "auto_backup_time": cfg.lifecycle_backup_auto_time,
+                },
             },
             "project": {
                 "isolation_mode": cfg.project_isolation_mode,

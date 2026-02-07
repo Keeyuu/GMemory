@@ -11,8 +11,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from gmemory.commands.add import add_memory
+from gmemory.commands.backup import (
+    create_backup,
+    get_backup_settings,
+    list_backups,
+    restore_backup,
+    update_backup_settings,
+)
 from gmemory.commands.delete import delete_memory
 from gmemory.commands.get import get_memories
+from gmemory.commands.import_external import import_external_provider_data
 from gmemory.commands.list import list_memories
 from gmemory.commands.quick import (
     find_by_tag,
@@ -70,6 +78,27 @@ class MemoryUpdateRequest(BaseModel):
     memory_type: Optional[str] = None
     project_path: Optional[str] = None
     project_name: Optional[str] = None
+
+
+class BackupCreateRequest(BaseModel):
+    reason: str = "manual"
+
+
+class BackupSettingsRequest(BaseModel):
+    enabled: Optional[bool] = None
+    path: Optional[str] = None
+    max_backups: Optional[int] = Field(default=None, ge=1)
+    auto_backup_time: Optional[str] = None
+
+
+class BackupRestoreRequest(BaseModel):
+    backup_id: str = Field(min_length=1)
+
+
+class ExternalImportRequest(BaseModel):
+    folder_path: str = Field(min_length=1)
+    scanner_type: str = Field(min_length=1)
+    limit: int = Field(default=500, ge=1, le=5000)
 
 
 app = FastAPI(title="GMemory Web API", version="0.1.0")
@@ -283,6 +312,63 @@ async def api_tag_memories(
     result["memories"] = [
         _normalize_memory_payload(item) for item in result.get("memories", [])
     ]
+    return result
+
+
+@app.get("/api/backup/settings")
+async def api_backup_settings() -> dict[str, Any]:
+    return get_backup_settings()
+
+
+@app.put("/api/backup/settings")
+async def api_backup_settings_update(payload: BackupSettingsRequest) -> dict[str, Any]:
+    try:
+        return update_backup_settings(
+            enabled=payload.enabled,
+            path=payload.path,
+            max_backups=payload.max_backups,
+            auto_backup_time=payload.auto_backup_time,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/backup/list")
+async def api_backup_list(
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, Any]:
+    return list_backups(limit=limit)
+
+
+@app.post("/api/backup/create")
+async def api_backup_create(payload: BackupCreateRequest) -> dict[str, Any]:
+    result = create_backup(reason=payload.reason)
+    if not result.get("created"):
+        raise HTTPException(
+            status_code=400, detail=result.get("error", "Backup failed")
+        )
+    return result
+
+
+@app.post("/api/backup/restore")
+async def api_backup_restore(payload: BackupRestoreRequest) -> dict[str, Any]:
+    result = restore_backup(payload.backup_id)
+    if not result.get("restored"):
+        raise HTTPException(
+            status_code=400, detail=result.get("error", "Restore failed")
+        )
+    return result
+
+
+@app.post("/api/import/external")
+async def api_import_external(payload: ExternalImportRequest) -> dict[str, Any]:
+    result = import_external_provider_data(
+        folder_path=payload.folder_path,
+        scanner_type=payload.scanner_type,
+        limit=payload.limit,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
     return result
 
 

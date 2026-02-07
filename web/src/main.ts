@@ -12,6 +12,8 @@ const routes = [
   { path: '/memories/new', name: 'new-memory', component: () => import('./views/NewMemory.vue') },
   { path: '/memory/:id', name: 'memory-detail', component: () => import('./views/MemoryDetail.vue') },
   { path: '/search', name: 'search', component: () => import('./views/Search.vue') },
+  { path: '/backup', name: 'backup', component: () => import('./views/BackupSettings.vue') },
+  { path: '/import', name: 'import', component: () => import('./views/ExternalImport.vue') },
 ]
 
 const router = createRouter({

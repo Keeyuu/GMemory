@@ -22,14 +22,14 @@ def register_workflow_commands(cli: click.Group) -> None:
 
     @cli.command("process")
     @click.option("--limit", default=5, help="Maximum sessions to fetch.")
-    @click.option("--agent", default="opencode", help="Agent type.")
+    @click.option("--agent", default="all", help="Agent type.")
     @handle_cli_error
     def process_cmd(limit, agent):
         """Fetch unprocessed sessions for review (workflow step 1)."""
         return process_sessions(limit=limit, agent=agent)
 
     @cli.command("mark-all")
-    @click.option("--agent", default="opencode", help="Agent type.")
+    @click.option("--agent", default="all", help="Agent type.")
     @click.option("--limit", default=10, help="Maximum sessions to mark.")
     @click.option(
         "--dry-run", is_flag=True, default=True, help="Preview what would be marked."
@@ -45,7 +45,7 @@ def register_workflow_commands(cli: click.Group) -> None:
         )
 
     @cli.command("backlog")
-    @click.option("--agent", default="opencode", help="Agent type.")
+    @click.option("--agent", default="all", help="Agent type.")
     @cli_command(indent=2)
     def backlog_cmd(agent):
         """Show backlog status and workflow suggestions."""

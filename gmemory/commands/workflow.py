@@ -13,7 +13,7 @@ from gmemory.container import get_container
 
 def process_sessions(
     limit: int = 5,
-    agent: str = "opencode",
+    agent: Optional[str] = None,
     auto_mark: bool = False,
     show_backlog: bool = True,
 ) -> Dict[str, Any]:
@@ -39,7 +39,8 @@ def process_sessions(
         - workflow: Suggested workflow commands
         - hint: Usage hint for next steps
     """
-    result = fetch_unprocessed_sessions(limit=limit, agent=agent)
+    resolved_agent = agent or "all"
+    result = fetch_unprocessed_sessions(limit=limit, agent=resolved_agent)
 
     if "error" in result:
         return result
@@ -54,11 +55,13 @@ def process_sessions(
 
     # Add backlog statistics
     if show_backlog:
-        backlog_info = _get_backlog_stats(agent, len(sessions), has_more, limit)
+        backlog_info = _get_backlog_stats(
+            resolved_agent, len(sessions), has_more, limit
+        )
         response["backlog"] = backlog_info
 
     # Generate workflow suggestions based on session count
-    workflow = _generate_workflow_suggestions(sessions, agent)
+    workflow = _generate_workflow_suggestions(sessions, resolved_agent)
     response["workflow"] = workflow
 
     # Contextual hint based on situation
@@ -79,7 +82,7 @@ def process_sessions(
             f"{len(sessions)} sessions to review. Options:\n"
             f"  1. Process individually: gmemory save --session-id=<id> --content=<distilled>\n"
             f"  2. Batch process: Use save_batch() programmatically\n"
-            f"  3. Skip all: gmemory mark-all --agent={agent} --limit={len(sessions)}"
+            f"  3. Skip all: gmemory mark-all --agent={resolved_agent} --limit={len(sessions)}"
         )
         response["status"] = "pending"
         if has_more:
@@ -115,7 +118,10 @@ def _get_backlog_stats(
     try:
         db = container.get_database()
         # Get total processed sessions count
-        stats["total_processed"] = db.get_processed_session_count(agent)
+        if agent == "all":
+            stats["total_processed"] = db.get_stats()["processed_sessions"]
+        else:
+            stats["total_processed"] = db.get_processed_session_count(agent)
 
         # Get scan error count
         stats["unresolved_errors"] = db.get_unresolved_error_count()
@@ -372,7 +378,7 @@ def skip_session(session_id: str) -> Dict[str, Any]:
 
 
 def mark_all_sessions(
-    agent: str = "opencode",
+    agent: str = "all",
     limit: int = 10,
     dry_run: bool = True,
     reason: Optional[str] = None,
