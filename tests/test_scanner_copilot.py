@@ -2,6 +2,9 @@
 
 import json
 from pathlib import Path
+import gmemory.config as cfg
+
+from gmemory.storage.database import MemoryDatabase
 
 from gmemory.scanner.copilot import CopilotScanner
 
@@ -74,3 +77,65 @@ def test_copilot_scanner_count_sessions(tmp_path):
     scanner = CopilotScanner(base_dir=tmp_path, incremental=False)
 
     assert scanner.count_sessions() == 2
+
+
+def test_copilot_scanner_skips_when_version_unchanged(tmp_path):
+    original_path = cfg.config._config["storage"]["db_path"]
+    cfg.config._config["storage"]["db_path"] = str(tmp_path / "copilot-scanner.db")
+    try:
+        session_id = "session-1"
+        session_file = _create_workspace_chat(tmp_path, "workspace1", session_id)
+        scanner = CopilotScanner(base_dir=tmp_path, incremental=False)
+        session_data = json.loads(session_file.read_text(encoding="utf-8"))
+        source_updated_at, session_hash = scanner._compute_session_version(session_data)
+
+        db = MemoryDatabase()
+        try:
+            db.mark_session_processed(
+                agent=scanner.agent,
+                session_id=session_id,
+                source_updated_at=source_updated_at,
+                session_hash=session_hash,
+                processor="default",
+            )
+        finally:
+            db.close()
+
+        sessions = scanner.get_unprocessed_sessions(limit=5)
+        assert sessions == []
+    finally:
+        cfg.config._config["storage"]["db_path"] = original_path
+
+
+def test_copilot_scanner_reprocesses_when_hash_changes(tmp_path):
+    original_path = cfg.config._config["storage"]["db_path"]
+    cfg.config._config["storage"]["db_path"] = str(tmp_path / "copilot-scanner.db")
+    try:
+        session_id = "session-1"
+        session_file = _create_workspace_chat(tmp_path, "workspace1", session_id)
+        scanner = CopilotScanner(base_dir=tmp_path, incremental=False)
+
+        old_data = json.loads(session_file.read_text(encoding="utf-8"))
+        source_updated_at, old_hash = scanner._compute_session_version(old_data)
+
+        db = MemoryDatabase()
+        try:
+            db.mark_session_processed(
+                agent=scanner.agent,
+                session_id=session_id,
+                source_updated_at=source_updated_at,
+                session_hash=old_hash,
+                processor="default",
+            )
+        finally:
+            db.close()
+
+        updated = old_data
+        updated["requests"][0]["message"]["text"] = "Hello Copilot updated"
+        session_file.write_text(json.dumps(updated), encoding="utf-8")
+
+        sessions = scanner.get_unprocessed_sessions(limit=5)
+        assert len(sessions) == 1
+        assert sessions[0].session_id == session_id
+    finally:
+        cfg.config._config["storage"]["db_path"] = original_path

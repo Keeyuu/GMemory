@@ -1,0 +1,3 @@
+Command: uv run pytest tests/test_save_lineage.py
+Result: PASS (3 passed)
+Coverage: replaying same payload for same session is idempotent and does not create extra lineage rows.

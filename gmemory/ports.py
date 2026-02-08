@@ -195,8 +195,22 @@ class WorkflowPort(Protocol):
         session_id: str,
         status: str = "processed",
         reason: Optional[str] = None,
+        source_updated_at: Optional[int] = None,
+        session_hash: Optional[str] = None,
+        processor: str = "default",
+        run_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> None:
         """Mark a session as processed."""
+        ...
+
+    def get_latest_processed_session(
+        self,
+        agent: str,
+        session_id: str,
+        processor: str = "default",
+    ) -> Optional[Dict[str, Any]]:
+        """Get latest processed-state row for one session."""
         ...
 
     def get_processed_session_count(self, agent: str) -> int:

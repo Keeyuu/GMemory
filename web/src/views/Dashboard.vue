@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import type { Memory, MemoryStats } from '../types/memory'
+import type { Memory, NativeGhostCleanupResult } from '../types/memory'
 import StatsGrid from '../components/StatsGrid.vue'
 import MemoryCard from '../components/MemoryCard.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { useMemories } from '../composables/useMemories'
 
-const { getStats, getRecentMemories } = useMemories()
-
-const stats = ref<MemoryStats | null>(null)
+const { stats, getStats, getRecentMemories, cleanupNativeGhostSessions } = useMemories()
 const recentMemories = ref<Memory[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+const nativeCleanupLoading = ref(false)
+const nativeCleanupMessage = ref('')
+const nativeCleanupResult = ref<NativeGhostCleanupResult | null>(null)
+const showNativeCleanupConfirm = ref(false)
+const nativeCleanupError = ref('')
 
 const formatAccessTime = (value?: string | number | null) => {
   if (!value) return 'Never accessed'
@@ -23,7 +27,7 @@ const formatAccessTime = (value?: string | number | null) => {
   return date.toLocaleDateString()
 }
 
-onMounted(async () => {
+const loadDashboard = async () => {
   try {
     const [statsResult, recentResult] = await Promise.allSettled([
       getStats(),
@@ -46,7 +50,41 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+const applyNativeGhostCleanup = async () => {
+  nativeCleanupLoading.value = true
+  nativeCleanupError.value = ''
+  nativeCleanupMessage.value = ''
+  try {
+    const preview = await cleanupNativeGhostSessions({
+      scannerType: 'all',
+      dryRun: true,
+      limit: 5000,
+    })
+    const token = preview.confirm_token
+    const result = preview.candidate_count > 0
+      ? await cleanupNativeGhostSessions({
+          scannerType: 'all',
+          dryRun: false,
+          limit: 5000,
+          confirmToken: token,
+        })
+      : preview
+    nativeCleanupResult.value = result
+    nativeCleanupMessage.value = result.summary
+    const refreshedStats = await getStats()
+    stats.value = refreshedStats
+  } catch (err) {
+    nativeCleanupError.value =
+      err instanceof Error ? err.message : 'Local ghost cleanup failed'
+  } finally {
+    nativeCleanupLoading.value = false
+    showNativeCleanupConfirm.value = false
+  }
+}
+
+onMounted(loadDashboard)
 </script>
 
 <template>
@@ -65,6 +103,56 @@ onMounted(async () => {
 
     <!-- Stats -->
     <StatsGrid :stats="stats" :loading="loading" />
+
+    <!-- Native Session Cleanup -->
+    <section class="card p-5 space-y-4 border-amber-500/20">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+            <div class="i-carbon-clean w-5 h-5 text-amber-400" />
+            Local Native Ghost Cleanup
+          </h2>
+          <p class="text-sm text-space-400 mt-1">
+            Clean stale local processed-session markers that no longer map to native scanner logs.
+          </p>
+        </div>
+        <button
+          class="btn"
+          :disabled="nativeCleanupLoading"
+          @click="showNativeCleanupConfirm = true"
+        >
+          <span v-if="nativeCleanupLoading">Cleaning...</span>
+          <span v-else>One-click Cleanup</span>
+        </button>
+      </div>
+
+      <div v-if="nativeCleanupMessage" class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-200">
+        {{ nativeCleanupMessage }}
+      </div>
+
+      <div v-if="nativeCleanupError" class="rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300">
+        {{ nativeCleanupError }}
+      </div>
+
+      <div v-if="nativeCleanupResult" class="grid md:grid-cols-4 gap-3 text-sm">
+        <div class="rounded-lg border border-space-800 p-3">
+          <div class="text-space-500">Scanned Native Files</div>
+          <div class="font-mono text-white">{{ nativeCleanupResult.scanned_native_files }}</div>
+        </div>
+        <div class="rounded-lg border border-space-800 p-3">
+          <div class="text-space-500">Processed Records</div>
+          <div class="font-mono text-white">{{ nativeCleanupResult.scanned_processed_records }}</div>
+        </div>
+        <div class="rounded-lg border border-space-800 p-3">
+          <div class="text-space-500">Ghost Candidates</div>
+          <div class="font-mono text-amber-300">{{ nativeCleanupResult.candidate_count }}</div>
+        </div>
+        <div class="rounded-lg border border-space-800 p-3">
+          <div class="text-space-500">Deleted</div>
+          <div class="font-mono text-neural-300">{{ nativeCleanupResult.deleted ?? 0 }}</div>
+        </div>
+      </div>
+    </section>
 
     <!-- Recent Memories -->
     <section>
@@ -201,5 +289,16 @@ onMounted(async () => {
         </div>
       </div>
     </section>
+
+    <ConfirmDialog
+      v-if="showNativeCleanupConfirm"
+      title="Cleanup Local Ghost Records"
+      message="This will delete local processed-session markers that no longer exist in native scanner logs. This operation does not touch external imported queues."
+      confirm-text="Cleanup Now"
+      type="warning"
+      :loading="nativeCleanupLoading"
+      @confirm="applyNativeGhostCleanup"
+      @cancel="showNativeCleanupConfirm = false"
+    />
   </div>
 </template>

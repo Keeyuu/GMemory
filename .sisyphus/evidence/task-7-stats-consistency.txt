@@ -1,0 +1,5 @@
+Commands:
+- uv run pytest tests/test_webapi.py tests/test_search_modes.py
+- npm run build (web)
+Result: PASS
+Coverage: API stats payload remains stable and frontend compile validates cross-view stats/cleanup contract fields.

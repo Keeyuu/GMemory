@@ -1,0 +1,3 @@
+Command: uv run pytest tests/test_import_external.py tests/test_webapi.py
+Result: PASS (20 passed)
+Coverage: imported session re-enters pending after source version update; preview/import counters align with version-aware processed comparison.

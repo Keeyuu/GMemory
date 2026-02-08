@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from gmemory.scanner.opencode import OpenCodeScanner
+from gmemory.storage.database import MemoryDatabase
+import gmemory.config as cfg
 from gmemory.scanner.state import (
     ScanState,
     ScanStateManager,
@@ -103,6 +105,36 @@ class TestOpenCodeScanner:
 
         return tmp_path
 
+    @pytest.fixture
+    def temp_db_path(self, tmp_path):
+        original_path = cfg.config._config["storage"]["db_path"]
+        db_path = tmp_path / "scanner-test.db"
+        cfg.config._config["storage"]["db_path"] = str(db_path)
+        try:
+            yield db_path
+        finally:
+            cfg.config._config["storage"]["db_path"] = original_path
+
+    @staticmethod
+    def _write_session_file(
+        base_dir: Path, session_id: str, created: int, title: str
+    ) -> Path:
+        session_dir = base_dir / "storage" / "session" / "project1"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        session_file = session_dir / f"ses_{session_id}.json"
+        session_file.write_text(
+            json.dumps(
+                {
+                    "id": session_id,
+                    "directory": "/path/to/project",
+                    "title": title,
+                    "time": {"created": created},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return session_file
+
     def test_count_sessions(self, mock_opencode_storage):
         """Should count session files correctly."""
         scanner = OpenCodeScanner(base_dir=mock_opencode_storage, incremental=False)
@@ -142,6 +174,116 @@ class TestOpenCodeScanner:
         sessions = scanner.get_unprocessed_sessions(limit=10)
 
         assert sessions == []
+
+    def test_get_unprocessed_sessions_skip_when_version_unchanged(
+        self, tmp_path, temp_db_path
+    ):
+        session_id = "same-version"
+        self._write_session_file(
+            base_dir=tmp_path,
+            session_id=session_id,
+            created=100,
+            title="Original",
+        )
+
+        scanner = OpenCodeScanner(base_dir=tmp_path, incremental=False)
+        with open(
+            tmp_path / "storage" / "session" / "project1" / f"ses_{session_id}.json",
+            "r",
+            encoding="utf-8",
+        ) as f:
+            session_data = json.load(f)
+        source_updated_at, session_hash = scanner._compute_session_version(session_data)
+
+        db = MemoryDatabase()
+        try:
+            db.mark_session_processed(
+                agent=scanner.agent,
+                session_id=session_id,
+                source_updated_at=source_updated_at,
+                session_hash=session_hash,
+                processor="default",
+            )
+        finally:
+            db.close()
+
+        sessions = scanner.get_unprocessed_sessions(limit=10)
+        assert sessions == []
+
+    def test_get_unprocessed_sessions_reprocess_when_hash_changes(
+        self, tmp_path, temp_db_path
+    ):
+        session_id = "updated-hash"
+        session_file = self._write_session_file(
+            base_dir=tmp_path,
+            session_id=session_id,
+            created=100,
+            title="Original",
+        )
+
+        scanner = OpenCodeScanner(base_dir=tmp_path, incremental=False)
+        with open(session_file, "r", encoding="utf-8") as f:
+            old_data = json.load(f)
+        source_updated_at, old_hash = scanner._compute_session_version(old_data)
+
+        db = MemoryDatabase()
+        try:
+            db.mark_session_processed(
+                agent=scanner.agent,
+                session_id=session_id,
+                source_updated_at=source_updated_at,
+                session_hash=old_hash,
+                processor="default",
+            )
+        finally:
+            db.close()
+
+        self._write_session_file(
+            base_dir=tmp_path,
+            session_id=session_id,
+            created=100,
+            title="Updated",
+        )
+
+        sessions = scanner.get_unprocessed_sessions(limit=10)
+        assert len(sessions) == 1
+        assert sessions[0].session_id == session_id
+
+    def test_get_unprocessed_sessions_reprocess_when_latest_processed_is_stale(
+        self, tmp_path, temp_db_path
+    ):
+        session_id = "stale-processed"
+        self._write_session_file(
+            base_dir=tmp_path,
+            session_id=session_id,
+            created=200,
+            title="Current",
+        )
+
+        scanner = OpenCodeScanner(base_dir=tmp_path, incremental=False)
+        with open(
+            tmp_path / "storage" / "session" / "project1" / f"ses_{session_id}.json",
+            "r",
+            encoding="utf-8",
+        ) as f:
+            session_data = json.load(f)
+        _, session_hash = scanner._compute_session_version(session_data)
+
+        db = MemoryDatabase()
+        try:
+            db.mark_session_processed(
+                agent=scanner.agent,
+                session_id=session_id,
+                source_updated_at=100,
+                session_hash=session_hash,
+                processor="default",
+            )
+        finally:
+            db.close()
+
+        sessions = scanner.get_unprocessed_sessions(limit=10)
+        assert len(sessions) == 1
+        assert sessions[0].session_id == session_id
 
     def test_load_full_session_with_messages(self, mock_storage_with_messages):
         """Should load session with messages and parts."""

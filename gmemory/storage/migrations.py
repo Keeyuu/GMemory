@@ -309,3 +309,36 @@ def migrate_v7(conn: sqlite3.Connection) -> None:
 
     if "preview" not in columns:
         conn.execute("ALTER TABLE memories ADD COLUMN preview TEXT DEFAULT NULL")
+
+
+@migration(8, "Add version-aware fields to processed_sessions")
+def migrate_v8(conn: sqlite3.Connection) -> None:
+    """Add version and idempotency metadata to processed_sessions."""
+    cursor = conn.execute("PRAGMA table_info(processed_sessions)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if "source_updated_at" not in columns:
+        conn.execute(
+            "ALTER TABLE processed_sessions ADD COLUMN source_updated_at INTEGER"
+        )
+
+    if "session_hash" not in columns:
+        conn.execute("ALTER TABLE processed_sessions ADD COLUMN session_hash TEXT")
+
+    if "processor" not in columns:
+        conn.execute(
+            "ALTER TABLE processed_sessions ADD COLUMN processor TEXT NOT NULL DEFAULT 'default'"
+        )
+
+    if "run_id" not in columns:
+        conn.execute("ALTER TABLE processed_sessions ADD COLUMN run_id TEXT")
+
+    if "idempotency_key" not in columns:
+        conn.execute("ALTER TABLE processed_sessions ADD COLUMN idempotency_key TEXT")
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_processed_sessions_version ON processed_sessions(agent, session_id, source_updated_at, processed_at)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_processed_sessions_idempotency ON processed_sessions(processor, agent, session_id, idempotency_key) WHERE idempotency_key IS NOT NULL"
+    )

@@ -17,6 +17,7 @@ model: local-gemini/gemini-3-pro-preview
 1.  **全量扫描**: 使用 `session_read` 遍历指定的或积压的会话，不遗漏任何有价值的信息。
 2.  **深度提炼**: 从对话中识别并提取能帮助 Agent 未来做得更好的信息。
 3.  **结构化入库**: 使用 `gmemory_add` / `gmemory_update` 将提炼的知识存入向量数据库，确保标签准确、上下文完整。
+4.  **处理闭环**: 对已成功提炼并写入的会话执行 `mark`，避免 backlog 长期不下降。
 
 ## 提炼标准 (Extraction Criteria)
 
@@ -55,6 +56,34 @@ model: local-gemini/gemini-3-pro-preview
 *   **更新**: `gmemory_update(mem_id=..., content=..., preview=..., tags="...")`
     *   `preview` 与 `content` 必须同时提供。
 *   **查重**: 入库前可简要搜索 (`gmemory_quick_search`) 避免重复，或者相信向量库的语义去重能力（主要依靠后期的 `refine-memory` 任务进行合并，本次扫描以“捕获”为主）。
+
+## MCP 标准作业流程 (SOP)
+
+每次执行任务，必须按以下顺序走完 MCP 流程，避免遗漏或误用：
+
+1. **建立基线**:
+   * `gmemory_stats` 查看当前总量和待处理量。
+2. **候选检索**:
+   * 用 `gmemory_quick_search` 或 `gmemory_search --compact` 先拿候选 ID 和预览。
+3. **完整读取**:
+   * 对候选 ID 使用 `gmemory_get(ids=...)` 拉取完整内容后再决策。
+4. **执行写操作**:
+   * 新增用 `gmemory_add`，修订用 `gmemory_update`，删除用 `gmemory_delete`。
+   * `gmemory_add` / `gmemory_update` 必须显式传 `preview` + `content`。
+5. **会话标记**:
+   * 对已完成提炼的会话执行 `gmemory_mark`（或 `gmemory mark --session-id`）。
+   * 只有在写入成功后才允许 mark，失败会话禁止 mark。
+6. **写后核验**:
+   * 再次 `gmemory_get` 抽查关键 ID，确认标签、importance、正文质量。
+7. **收尾复盘**:
+   * `gmemory_stats` 或 `gmemory_recent` 验证本轮变更结果。
+
+### MCP 使用红线
+
+* 禁止只靠 `preview` 做删改决策，必须先 `gmemory_get`。
+* 禁止把工具失败当成功，任何失败都要记录并在报告里说明。
+* 禁止省略 `preview` 字段或把 `preview` 机械复制到 `content` 首段。
+* 禁止“先 mark 后写入”；mark 必须在写入成功之后执行。
 
 ## 输出格式
 

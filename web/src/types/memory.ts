@@ -89,10 +89,83 @@ export interface ExternalImportResult {
   imported?: number
   total_sessions: number
   source_total_sessions: number
+  source_pending_estimate?: number
+  source_extractable_this_run?: number
+  scan_limit?: number
+  scan_limit_reached?: boolean
+  queue_pending_before_import?: number
   scanner_type: string
   folder_path: string
   pending_unprocessed: number
   processed_sessions: number
   total_imported_sessions: number
   errors: Array<{ session_id: string; error: string }>
+}
+
+export interface ExternalImportPreview {
+  scanner_type: string
+  folder_path: string
+  source_total_sessions: number
+  source_pending_estimate: number
+  source_extractable_this_run: number
+  scan_limit: number
+  scan_limit_reached: boolean
+  queue_pending_before_import: number
+}
+
+export interface ExternalCleanupCandidate {
+  session_id: string
+  agent: string
+  source_scanner: string
+  imported_at?: number
+  reasons: string[]
+}
+
+export interface ExternalCleanupResult {
+  dry_run: boolean
+  scanner_type: string
+  scanned: number
+  candidate_count: number
+  confirm_token?: string
+  deleted?: number
+  would_delete?: ExternalCleanupCandidate[]
+  failed?: Array<{ session_id: string; error: string }>
+  by_reason: Record<string, number>
+  queue_pending_before_cleanup?: number
+  total_imported_before_cleanup?: number
+  pending_unprocessed_after?: number
+  total_imported_after?: number
+  processed_sessions_after?: number
+  summary: string
+}
+
+export interface NativeGhostCleanupCandidate {
+  session_id: string
+  agent: string
+  reason: string
+}
+
+export interface NativeGhostCleanupResult {
+  dry_run: boolean
+  scanner_type: string
+  scanned_processed_records: number
+  scanned_native_files: number
+  candidate_count: number
+  confirm_token?: string
+  deleted?: number
+  failed?: Array<{ scanner: string; count: number; error: string }>
+  would_delete?: NativeGhostCleanupCandidate[]
+  by_scanner: Record<string, number>
+  parse_errors: number
+  limit_reached: boolean
+  details: Array<{
+    scanner: string
+    supported: boolean
+    reason?: string
+    native_files?: number
+    processed_records?: number
+    candidate_count?: number
+    parse_errors?: number
+  }>
+  summary: string
 }

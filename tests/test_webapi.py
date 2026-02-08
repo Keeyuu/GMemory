@@ -292,3 +292,157 @@ def test_import_external_endpoint() -> None:
         assert payload["failed"] == 1
     finally:
         webapi_module.import_external_provider_data = original_import
+
+
+def test_preview_import_external_endpoint() -> None:
+    original_preview = webapi_module.preview_external_provider_data
+
+    def fake_preview_external_provider_data(
+        folder_path: str,
+        scanner_type: str,
+        limit: int,
+    ) -> dict:
+        assert folder_path == "/data/external"
+        assert scanner_type == "opencode"
+        assert limit == 200
+        return {
+            "scanner_type": scanner_type,
+            "folder_path": folder_path,
+            "source_total_sessions": 120,
+            "source_pending_estimate": 48,
+            "source_extractable_this_run": 48,
+            "scan_limit": 200,
+            "scan_limit_reached": False,
+            "queue_pending_before_import": 11,
+        }
+
+    webapi_module.preview_external_provider_data = fake_preview_external_provider_data
+
+    try:
+        response = client.post(
+            "/api/import/external/preview",
+            json={
+                "folder_path": "/data/external",
+                "scanner_type": "opencode",
+                "limit": 200,
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["source_total_sessions"] == 120
+        assert payload["source_pending_estimate"] == 48
+        assert payload["queue_pending_before_import"] == 11
+    finally:
+        webapi_module.preview_external_provider_data = original_preview
+
+
+def test_cleanup_import_external_endpoint() -> None:
+    original_cleanup = webapi_module.cleanup_imported_sessions
+
+    def fake_cleanup_imported_sessions(
+        scanner_type: str,
+        dry_run: bool,
+        older_than_seconds: int,
+        limit: int,
+        confirm_token: str | None,
+    ) -> dict:
+        assert scanner_type == "opencode"
+        assert dry_run is True
+        assert older_than_seconds == 3600
+        assert limit == 120
+        assert confirm_token is None
+        return {
+            "dry_run": True,
+            "scanner_type": scanner_type,
+            "scanned": 50,
+            "candidate_count": 3,
+            "would_delete": [
+                {
+                    "session_id": "ghost-1",
+                    "agent": "opencode",
+                    "source_scanner": "opencode",
+                    "imported_at": 1738893600,
+                    "reasons": ["missing_source_path"],
+                }
+            ],
+            "by_reason": {"missing_source_path": 3},
+            "summary": "Would delete 3 imported session records.",
+        }
+
+    webapi_module.cleanup_imported_sessions = fake_cleanup_imported_sessions
+
+    try:
+        response = client.post(
+            "/api/import/external/cleanup",
+            json={
+                "scanner_type": "opencode",
+                "dry_run": True,
+                "older_than_seconds": 3600,
+                "limit": 120,
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["dry_run"] is True
+        assert payload["candidate_count"] == 3
+        assert payload["by_reason"]["missing_source_path"] == 3
+    finally:
+        webapi_module.cleanup_imported_sessions = original_cleanup
+
+
+def test_cleanup_native_ghost_sessions_endpoint() -> None:
+    original_cleanup_native = webapi_module.cleanup_native_ghost_sessions
+
+    def fake_cleanup_native_ghost_sessions(
+        scanner_type: str,
+        dry_run: bool,
+        limit: int,
+        confirm_token: str | None,
+    ) -> dict:
+        assert scanner_type == "all"
+        assert dry_run is False
+        assert limit == 2500
+        assert confirm_token == "confirm-native-cleanup:all:2500"
+        return {
+            "dry_run": False,
+            "scanner_type": scanner_type,
+            "scanned_processed_records": 120,
+            "scanned_native_files": 73,
+            "candidate_count": 48,
+            "deleted": 48,
+            "failed": [],
+            "by_scanner": {"opencode": 45, "github-copilot": 3},
+            "parse_errors": 0,
+            "limit_reached": False,
+            "details": [
+                {
+                    "scanner": "opencode",
+                    "supported": True,
+                    "native_files": 70,
+                    "processed_records": 115,
+                    "candidate_count": 45,
+                    "parse_errors": 0,
+                }
+            ],
+            "summary": "Deleted 48 local ghost processed-session records.",
+        }
+
+    webapi_module.cleanup_native_ghost_sessions = fake_cleanup_native_ghost_sessions
+
+    try:
+        response = client.post(
+            "/api/sessions/native/ghost-cleanup",
+            json={
+                "scanner_type": "all",
+                "dry_run": False,
+                "limit": 2500,
+                "confirm_token": "confirm-native-cleanup:all:2500",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["candidate_count"] == 48
+        assert payload["deleted"] == 48
+        assert payload["by_scanner"]["opencode"] == 45
+    finally:
+        webapi_module.cleanup_native_ghost_sessions = original_cleanup_native

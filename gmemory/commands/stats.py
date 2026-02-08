@@ -3,6 +3,7 @@
 from typing import Dict, Any
 
 from gmemory.config import config
+from gmemory.commands.native_cleanup import get_native_session_snapshot
 from gmemory.storage.database import MemoryDatabase
 from gmemory.scanner.base import ScannerRegistry
 
@@ -31,30 +32,93 @@ def get_stats() -> Dict[str, Any]:
 
         total_sessions = 0
         unprocessed_count = 0
+        ghost_count = 0
         requested_scanner = config.default_scanner
+        processed_total = db_stats["processed_sessions"]
+        reprocess_count = 0
+        hash_mismatch_count = 0
+
+        processed_rows_all = db.list_processed_sessions(agent="all", limit=50000)
+        for row in processed_rows_all:
+            reason = str(row.get("reason") or "").lower()
+            if "reprocess" in reason:
+                reprocess_count += 1
+            if "hash_mismatch" in reason or "hash mismatch" in reason:
+                hash_mismatch_count += 1
+
+        reprocess_rate = (
+            round(reprocess_count / processed_total, 4) if processed_total > 0 else 0.0
+        )
+        hash_mismatch_rate = (
+            round(hash_mismatch_count / processed_total, 4)
+            if processed_total > 0
+            else 0.0
+        )
 
         if requested_scanner == "all":
             for scanner_name in sorted(ScannerRegistry.list_scanners()):
+                snapshot = get_native_session_snapshot(scanner_name)
+                if snapshot.get("supported"):
+                    native_ids = snapshot.get("session_ids", set())
+                    total_sessions += len(native_ids)
+                    processed_rows = db.list_processed_sessions(
+                        agent=scanner_name,
+                        limit=50000,
+                    )
+                    processed_ids = {
+                        str(row.get("session_id") or "") for row in processed_rows
+                    }
+                    processed_existing = sum(
+                        1 for session_id in native_ids if session_id in processed_ids
+                    )
+                    ghost_count += sum(
+                        1
+                        for session_id in processed_ids
+                        if session_id and session_id not in native_ids
+                    )
+                    unprocessed_count += max(0, len(native_ids) - processed_existing)
+                else:
+                    scanner = ScannerRegistry.create(
+                        name=scanner_name,
+                        incremental=False,
+                    )
+                    if not scanner:
+                        continue
+                    scanner_total = scanner.count_sessions()
+                    scanner_processed = db.get_processed_session_count(scanner_name)
+                    total_sessions += scanner_total
+                    unprocessed_count += max(0, scanner_total - scanner_processed)
+        else:
+            scanner_name = requested_scanner
+            snapshot = get_native_session_snapshot(scanner_name)
+            if snapshot.get("supported"):
+                native_ids = snapshot.get("session_ids", set())
+                total_sessions = len(native_ids)
+                processed_rows = db.list_processed_sessions(
+                    agent=scanner_name,
+                    limit=50000,
+                )
+                processed_ids = {
+                    str(row.get("session_id") or "") for row in processed_rows
+                }
+                processed_existing = sum(
+                    1 for session_id in native_ids if session_id in processed_ids
+                )
+                ghost_count += sum(
+                    1
+                    for session_id in processed_ids
+                    if session_id and session_id not in native_ids
+                )
+                unprocessed_count = max(0, len(native_ids) - processed_existing)
+            else:
                 scanner = ScannerRegistry.create(
                     name=scanner_name,
                     incremental=False,
                 )
-                if not scanner:
-                    continue
-                scanner_total = scanner.count_sessions()
-                scanner_processed = db.get_processed_session_count(scanner_name)
-                total_sessions += scanner_total
-                unprocessed_count += max(0, scanner_total - scanner_processed)
-        else:
-            scanner_name = requested_scanner
-            scanner = ScannerRegistry.create(
-                name=scanner_name,
-                incremental=False,
-            )
-            if scanner:
-                total_sessions = scanner.count_sessions()
-                scanner_processed = db.get_processed_session_count(scanner_name)
-                unprocessed_count = max(0, total_sessions - scanner_processed)
+                if scanner:
+                    total_sessions = scanner.count_sessions()
+                    scanner_processed = db.get_processed_session_count(scanner_name)
+                    unprocessed_count = max(0, total_sessions - scanner_processed)
 
         # Breakdown by project
         by_project = {}
@@ -83,6 +147,10 @@ def get_stats() -> Dict[str, Any]:
             "unprocessed_sessions": unprocessed_count,
             "scan_runs": db_stats["scan_runs"],
             "scan_errors": db_stats["scan_errors"],
+            "reprocess_rate": reprocess_rate,
+            "hash_mismatch_rate": hash_mismatch_rate,
+            "ghost_count": ghost_count,
+            "cleanup_deleted_rows": 0,
             "by_project": by_project,
             "by_importance": by_importance,
             "top_hot": top_hot,

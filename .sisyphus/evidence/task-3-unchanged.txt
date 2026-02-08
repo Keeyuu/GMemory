@@ -1,0 +1,3 @@
+Command: uv run pytest tests/test_scanner_opencode.py
+Result: PASS (25 passed)
+Assertion coverage: unchanged session with matching source_updated_at+session_hash is skipped.

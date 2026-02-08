@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMemories } from '../composables/useMemories'
-import type { MemoryStats } from '../types/memory'
 
 const route = useRoute()
-const { getStats } = useMemories()
-const stats = ref<MemoryStats | null>(null)
+const { getStats, stats } = useMemories()
 
 onMounted(async () => {
   try {
-    stats.value = await getStats()
+    if (!stats.value) {
+      await getStats()
+    }
   } catch {
     stats.value = null
   }

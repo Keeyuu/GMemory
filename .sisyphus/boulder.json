@@ -1,8 +1,9 @@
 {
-  "active_plan": "C:\\Code\\GMemory\\.sisyphus\\plans\\gmemory-mvp.md",
-  "started_at": "2026-02-03T13:04:57.217Z",
+  "active_plan": "C:\\Code\\GMemory\\.sisyphus\\plans\\session-versioning-mcp-closure-v021.md",
+  "started_at": "2026-02-07T00:00:00.000Z",
   "session_ids": [
-    "ses_3dcce2b14ffeZsbA6Q4QPFCtI4"
+    "ses_3dcce2b14ffeZsbA6Q4QPFCtI4",
+    "ses_3c81d0051ffdI1QhgP9alU2tis"
   ],
-  "plan_name": "gmemory-mvp"
+  "plan_name": "session-versioning-mcp-closure-v021"
 }

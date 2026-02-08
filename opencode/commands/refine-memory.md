@@ -9,6 +9,17 @@ description: (opencode - Command) Refine, deduplicate, and consolidate GMemory e
 
 ### 执行流程
 
+0.  **MCP 工具流程校准 (Mandatory MCP Workflow)**:
+    *   在开始前，先向 Subagent 明确：**所有清洗/合并动作必须通过 GMemory MCP 工具执行并可追溯**。
+    *   推荐固定流程：
+        1. `gmemory_stats` + `gmemory_tags`：建立质量与标签基线。
+        2. `gmemory_search --compact` / `gmemory_quick_search`：发现候选重复和低质量条目。
+        3. `gmemory_get`：读取候选记忆完整内容后再决定 merge/update/delete。
+        4. `gmemory_add` / `gmemory_update` / `gmemory_delete`：执行重构动作（`add/update` 必须带 `preview` + `content`）。
+        5. `gmemory_get`：抽查新核心记忆，验证字段质量。
+        6. `gmemory_stats` / `gmemory_tag`：复核结果是否符合预期。
+    *   禁止“只看 preview 就直接删改”；必须先 `gmemory_get` 再决策。
+
 1.  **全局诊断 (Diagnosis)**:
     *   运行 `gmemory_stats` 获取当前健康度。
     *   运行 `gmemory_tags` 分析标签分布，识别混乱或冗余的标签（如同义词）。
@@ -40,6 +51,7 @@ description: (opencode - Command) Refine, deduplicate, and consolidate GMemory e
             *   `Cleaned`: [ID] (原因)
             *   `Refined`: [ID] (操作: 标签优化/内容补充)
             *   `Insights`: [ID] (新发现的高层模式预览)
+            *   `MCP Evidence`: `stats_before` / `stats_after`、抽查 `gmemory_get` 的 ID 与结论。
 
 3.  **审核与报告 (Review & Report)**:
     *   检查 Subagent 的操作记录。

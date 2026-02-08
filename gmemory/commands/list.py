@@ -13,6 +13,7 @@ def list_memories(
     memory_type: Optional[str] = None,
     sort_by: str = "updated_at",
     sort_order: str = "desc",
+    include_superseded: bool = False,
 ) -> Dict[str, Any]:
     """
     List memories without requiring a search query.
@@ -30,6 +31,7 @@ def list_memories(
         memory_type: Optional memory type to filter by.
         sort_by: Field to sort by (created_at, updated_at). Defaults to updated_at.
         sort_order: Sort order (asc, desc). Defaults to desc.
+        include_superseded: If True, include superseded memories.
 
     Returns:
         Dict containing:
@@ -44,6 +46,9 @@ def list_memories(
         # Build query
         conditions = []
         params: ListType = []
+
+        if not include_superseded:
+            conditions.append("(superseded_by IS NULL OR superseded_by = '')")
 
         if project_path:
             conditions.append("project_path = ?")

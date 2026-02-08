@@ -1,0 +1,3 @@
+Command: uv run pytest tests/test_scanner_opencode.py
+Result: PASS (25 passed)
+Assertion coverage: same session_id with changed payload (hash change) re-enters unprocessed list; stale processed version does not force skip.

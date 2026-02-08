@@ -3,6 +3,7 @@ import struct
 import json
 import time
 import logging
+import hashlib
 from typing import List, Optional, Tuple, Any, Dict
 from pathlib import Path
 import uuid
@@ -159,9 +160,44 @@ class MemoryDatabase:
                     processed_at INTEGER NOT NULL,
                     status TEXT NOT NULL DEFAULT 'processed',
                     reason TEXT,
+                    source_updated_at INTEGER,
+                    session_hash TEXT,
+                    processor TEXT NOT NULL DEFAULT 'default',
+                    run_id TEXT,
+                    idempotency_key TEXT,
                     PRIMARY KEY (agent, session_id)
                 );
             """)
+
+            cursor = self.conn.execute("PRAGMA table_info(processed_sessions)")
+            processed_columns = {row[1] for row in cursor.fetchall()}
+            if "source_updated_at" not in processed_columns:
+                self.conn.execute(
+                    "ALTER TABLE processed_sessions ADD COLUMN source_updated_at INTEGER"
+                )
+            if "session_hash" not in processed_columns:
+                self.conn.execute(
+                    "ALTER TABLE processed_sessions ADD COLUMN session_hash TEXT"
+                )
+            if "processor" not in processed_columns:
+                self.conn.execute(
+                    "ALTER TABLE processed_sessions ADD COLUMN processor TEXT NOT NULL DEFAULT 'default'"
+                )
+            if "run_id" not in processed_columns:
+                self.conn.execute(
+                    "ALTER TABLE processed_sessions ADD COLUMN run_id TEXT"
+                )
+            if "idempotency_key" not in processed_columns:
+                self.conn.execute(
+                    "ALTER TABLE processed_sessions ADD COLUMN idempotency_key TEXT"
+                )
+
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_processed_sessions_version ON processed_sessions(agent, session_id, source_updated_at, processed_at)"
+            )
+            self.conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_processed_sessions_idempotency ON processed_sessions(processor, agent, session_id, idempotency_key) WHERE idempotency_key IS NOT NULL"
+            )
 
             # Imported sessions queue (external providers -> local pending backlog)
             self.conn.execute(
@@ -589,6 +625,27 @@ class MemoryDatabase:
 
         return [Memory.from_dict(dict(row)) for row in cursor]
 
+    def get_active_memory_by_source_session(
+        self,
+        *,
+        agent: str,
+        source_session_id: str,
+    ) -> Optional[Memory]:
+        """Get latest active memory for one agent/session lineage."""
+        cursor = self.conn.execute(
+            """
+            SELECT * FROM memories
+            WHERE agent = ?
+              AND source_session_id = ?
+              AND (superseded_by IS NULL OR superseded_by = '')
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (agent, source_session_id),
+        )
+        row = cursor.fetchone()
+        return Memory.from_dict(dict(row)) if row else None
+
     def search_memories(
         self, query_embedding: List[float], limit: int = 10, threshold: float = 0.5
     ) -> List[Tuple[Memory, float]]:
@@ -753,8 +810,9 @@ class MemoryDatabase:
             self.conn.execute(
                 """
                 INSERT OR REPLACE INTO processed_sessions (
-                    session_id, agent, processed_at, status, reason
-                ) VALUES (?, ?, ?, ?, ?)
+                    session_id, agent, processed_at, status, reason,
+                    source_updated_at, session_hash, processor, run_id, idempotency_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     session.session_id,
@@ -762,6 +820,11 @@ class MemoryDatabase:
                     session.processed_at,
                     session.status,
                     session.reason,
+                    session.source_updated_at,
+                    session.session_hash,
+                    session.processor,
+                    session.run_id,
+                    session.idempotency_key,
                 ),
             )
 
@@ -1004,49 +1067,144 @@ class MemoryDatabase:
         limit: int = 10,
         agent: Optional[str] = None,
     ) -> List[Session]:
-        """Get imported sessions that are not marked processed yet."""
-        params: List[Any]
+        """Get imported sessions that are pending version-aware processing."""
         if agent and agent != "all":
-            params = [agent, limit]
             cursor = self.conn.execute(
                 """
-                SELECT i.payload
+                SELECT i.session_id, i.agent, i.payload
                 FROM imported_sessions i
-                LEFT JOIN processed_sessions p
-                    ON p.agent = i.agent AND p.session_id = i.session_id
-                WHERE i.agent = ? AND p.session_id IS NULL
+                WHERE i.agent = ?
                 ORDER BY i.imported_at ASC
-                LIMIT ?
                 """,
-                params,
+                (agent,),
             )
         else:
-            params = [limit]
             cursor = self.conn.execute(
                 """
-                SELECT i.payload
+                SELECT i.session_id, i.agent, i.payload
                 FROM imported_sessions i
-                LEFT JOIN processed_sessions p
-                    ON p.agent = i.agent AND p.session_id = i.session_id
-                WHERE p.session_id IS NULL
                 ORDER BY i.imported_at ASC
-                LIMIT ?
-                """,
-                params,
+                """
             )
 
         sessions: List[Session] = []
         for row in cursor.fetchall():
+            if len(sessions) >= limit:
+                break
+
             payload_raw = row["payload"]
             if not payload_raw:
                 continue
             try:
                 payload = json.loads(payload_raw)
+                row_agent = str(row["agent"])
+                row_session_id = str(row["session_id"])
+                source_updated_at, session_hash = (
+                    self._extract_imported_session_version(
+                        payload_raw=payload_raw,
+                        payload=payload,
+                    )
+                )
+                if not self._needs_reprocess_against_latest(
+                    latest=self.get_latest_processed_session(
+                        agent=row_agent,
+                        session_id=row_session_id,
+                        processor="default",
+                    ),
+                    source_updated_at=source_updated_at,
+                    session_hash=session_hash,
+                ):
+                    continue
+
                 sessions.append(Session.from_dict(payload))
             except (json.JSONDecodeError, KeyError, TypeError):
                 continue
 
         return sessions
+
+    @staticmethod
+    def _coerce_source_updated_at(value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            ts = int(value)
+            if ts > 10_000_000_000:
+                ts = ts // 1000
+            return ts
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            if text.isdigit():
+                ts = int(text)
+                if ts > 10_000_000_000:
+                    ts = ts // 1000
+                return ts
+        return None
+
+    def _extract_imported_session_version(
+        self,
+        *,
+        payload_raw: str,
+        payload: Dict[str, Any],
+    ) -> Tuple[Optional[int], str]:
+        time_info = payload.get("time")
+        source_updated_at = None
+        if isinstance(time_info, dict):
+            source_updated_at = self._coerce_source_updated_at(
+                time_info.get("updated")
+                or time_info.get("modified")
+                or time_info.get("lastUpdated")
+                or time_info.get("created")
+            )
+
+        if source_updated_at is None:
+            source_updated_at = self._coerce_source_updated_at(
+                payload.get("lastModified") or payload.get("creationDate")
+            )
+
+        canonical = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        if not canonical:
+            canonical = payload_raw
+        session_hash = hashlib.md5(canonical.encode("utf-8")).hexdigest()
+        return source_updated_at, session_hash
+
+    @staticmethod
+    def _needs_reprocess_against_latest(
+        *,
+        latest: Optional[Dict[str, Any]],
+        source_updated_at: Optional[int],
+        session_hash: str,
+    ) -> bool:
+        if latest is None:
+            return True
+
+        latest_updated_raw = latest.get("source_updated_at")
+        latest_hash = latest.get("session_hash")
+        latest_updated = (
+            int(latest_updated_raw) if latest_updated_raw is not None else None
+        )
+
+        if latest_updated is None and not latest_hash:
+            return True
+        if source_updated_at is not None and latest_updated is None:
+            return True
+        if (
+            source_updated_at is not None
+            and latest_updated is not None
+            and source_updated_at > latest_updated
+        ):
+            return True
+        if latest_hash is None:
+            return True
+        if session_hash != latest_hash:
+            return True
+        return False
 
     def count_imported_sessions(self, agent: Optional[str] = None) -> int:
         """Count imported sessions in local queue."""
@@ -1064,25 +1222,93 @@ class MemoryDatabase:
         if agent and agent != "all":
             cursor = self.conn.execute(
                 """
-                SELECT COUNT(*)
+                SELECT i.session_id, i.agent, i.payload
                 FROM imported_sessions i
-                LEFT JOIN processed_sessions p
-                    ON p.agent = i.agent AND p.session_id = i.session_id
-                WHERE i.agent = ? AND p.session_id IS NULL
+                WHERE i.agent = ?
+                ORDER BY i.imported_at ASC
                 """,
                 (agent,),
             )
         else:
             cursor = self.conn.execute(
                 """
-                SELECT COUNT(*)
+                SELECT i.session_id, i.agent, i.payload
                 FROM imported_sessions i
-                LEFT JOIN processed_sessions p
-                    ON p.agent = i.agent AND p.session_id = i.session_id
-                WHERE p.session_id IS NULL
+                ORDER BY i.imported_at ASC
                 """
             )
-        return cursor.fetchone()[0]
+
+        pending = 0
+        for row in cursor.fetchall():
+            payload_raw = row["payload"]
+            if not payload_raw:
+                continue
+            try:
+                payload = json.loads(payload_raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            source_updated_at, session_hash = self._extract_imported_session_version(
+                payload_raw=payload_raw,
+                payload=payload,
+            )
+            if self._needs_reprocess_against_latest(
+                latest=self.get_latest_processed_session(
+                    agent=str(row["agent"]),
+                    session_id=str(row["session_id"]),
+                    processor="default",
+                ),
+                source_updated_at=source_updated_at,
+                session_hash=session_hash,
+            ):
+                pending += 1
+        return pending
+
+    def list_imported_sessions(
+        self,
+        agent: Optional[str] = None,
+        limit: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        """List imported session queue records for maintenance tasks."""
+        if agent and agent != "all":
+            cursor = self.conn.execute(
+                """
+                SELECT session_id, agent, source_scanner, source_path, payload, imported_at, updated_at
+                FROM imported_sessions
+                WHERE agent = ?
+                ORDER BY imported_at ASC
+                LIMIT ?
+                """,
+                (agent, limit),
+            )
+        else:
+            cursor = self.conn.execute(
+                """
+                SELECT session_id, agent, source_scanner, source_path, payload, imported_at, updated_at
+                FROM imported_sessions
+                ORDER BY imported_at ASC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+
+        return [dict(row) for row in cursor.fetchall()]
+
+    def delete_imported_sessions(self, agent: str, session_ids: List[str]) -> int:
+        """Delete imported session queue records for an agent."""
+        if not session_ids:
+            return 0
+
+        deleted = 0
+        with self.conn:
+            for session_id in session_ids:
+                cursor = self.conn.execute(
+                    "DELETE FROM imported_sessions WHERE agent = ? AND session_id = ?",
+                    (agent, session_id),
+                )
+                if cursor.rowcount > 0:
+                    deleted += cursor.rowcount
+        return deleted
 
     def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""
@@ -1287,6 +1513,11 @@ class MemoryDatabase:
         session_id: str,
         status: str = "processed",
         reason: Optional[str] = None,
+        source_updated_at: Optional[int] = None,
+        session_hash: Optional[str] = None,
+        processor: str = "default",
+        run_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> None:
         """Mark a session as processed."""
         processed_at = int(time.time())
@@ -1294,11 +1525,116 @@ class MemoryDatabase:
             self.conn.execute(
                 """
                 INSERT OR REPLACE INTO processed_sessions (
-                    session_id, agent, processed_at, status, reason
-                ) VALUES (?, ?, ?, ?, ?)
+                    session_id, agent, processed_at, status, reason,
+                    source_updated_at, session_hash, processor, run_id, idempotency_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, agent, processed_at, status, reason),
+                (
+                    session_id,
+                    agent,
+                    processed_at,
+                    status,
+                    reason,
+                    source_updated_at,
+                    session_hash,
+                    processor,
+                    run_id,
+                    idempotency_key,
+                ),
             )
+
+    def get_latest_processed_session(
+        self,
+        agent: str,
+        session_id: str,
+        processor: str = "default",
+    ) -> Optional[Dict[str, Any]]:
+        """Get latest processed-state row for one session."""
+        cursor = self.conn.execute(
+            """
+            SELECT session_id, agent, processed_at, status, reason,
+                   source_updated_at, session_hash, processor, run_id, idempotency_key
+            FROM processed_sessions
+            WHERE agent = ? AND session_id = ? AND processor = ?
+            LIMIT 1
+            """,
+            (agent, session_id, processor),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def mark_session_processed_versioned(
+        self,
+        *,
+        agent: str,
+        session_id: str,
+        status: str = "processed",
+        reason: Optional[str] = None,
+        source_updated_at: Optional[int] = None,
+        session_hash: Optional[str] = None,
+        processor: str = "default",
+        run_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Version-aware mark with noop/conflict semantics."""
+        latest = self.get_latest_processed_session(agent, session_id, processor)
+
+        if latest is not None:
+            latest_updated = latest.get("source_updated_at")
+            latest_hash = latest.get("session_hash")
+            latest_idempotency = latest.get("idempotency_key")
+
+            if idempotency_key and latest_idempotency == idempotency_key:
+                return {"result": "noop", "current_latest": latest}
+
+            if (
+                source_updated_at is not None
+                and latest_updated is not None
+                and int(source_updated_at) < int(latest_updated)
+            ):
+                return {
+                    "result": "conflict",
+                    "error_code": "CONFLICT",
+                    "current_latest": latest,
+                }
+
+            if (
+                source_updated_at is not None
+                and latest_updated is not None
+                and int(source_updated_at) == int(latest_updated)
+                and session_hash
+                and latest_hash
+                and session_hash != latest_hash
+            ):
+                return {
+                    "result": "conflict",
+                    "error_code": "CONFLICT",
+                    "current_latest": latest,
+                }
+
+            if (
+                source_updated_at is not None
+                and latest_updated is not None
+                and int(source_updated_at) == int(latest_updated)
+                and session_hash
+                and latest_hash
+                and session_hash == latest_hash
+            ):
+                return {"result": "noop", "current_latest": latest}
+
+        self.mark_session_processed(
+            agent=agent,
+            session_id=session_id,
+            status=status,
+            reason=reason,
+            source_updated_at=source_updated_at,
+            session_hash=session_hash,
+            processor=processor,
+            run_id=run_id,
+            idempotency_key=idempotency_key,
+        )
+        current = self.get_latest_processed_session(agent, session_id, processor)
+        return {"result": "applied", "current_latest": current}
 
     def get_processed_session_count(self, agent: str) -> int:
         """Get count of processed sessions for an agent."""
@@ -1307,6 +1643,38 @@ class MemoryDatabase:
             (agent,),
         )
         return cursor.fetchone()[0]
+
+    def list_processed_sessions(
+        self,
+        agent: Optional[str] = None,
+        limit: int = 5000,
+    ) -> List[Dict[str, Any]]:
+        """List processed session records for maintenance tasks."""
+        safe_limit = max(1, limit)
+        if agent and agent != "all":
+            cursor = self.conn.execute(
+                """
+                SELECT session_id, agent, processed_at, status, reason,
+                       source_updated_at, session_hash, processor, run_id, idempotency_key
+                FROM processed_sessions
+                WHERE agent = ?
+                ORDER BY processed_at ASC
+                LIMIT ?
+                """,
+                (agent, safe_limit),
+            )
+        else:
+            cursor = self.conn.execute(
+                """
+                SELECT session_id, agent, processed_at, status, reason,
+                       source_updated_at, session_hash, processor, run_id, idempotency_key
+                FROM processed_sessions
+                ORDER BY processed_at ASC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            )
+        return [dict(row) for row in cursor.fetchall()]
 
     def get_unresolved_error_count(self) -> int:
         """Get count of unresolved scan errors."""

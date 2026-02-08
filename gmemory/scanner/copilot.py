@@ -6,9 +6,10 @@ Scans VS Code workspaceStorage chatSessions for Copilot chat logs.
 import json
 import logging
 import os
+import hashlib
 from contextlib import closing
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from gmemory.config import config
 from gmemory.models import Session, Message
@@ -25,6 +26,72 @@ class CopilotScanner(Scanner):
     """Scans GitHub Copilot Chat sessions from VS Code workspace storage."""
 
     name = "github-copilot"
+
+    @staticmethod
+    def _coerce_timestamp(value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            ts = int(value)
+            if ts > 10_000_000_000:
+                ts = ts // 1000
+            return ts
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            if text.isdigit():
+                ts = int(text)
+                if ts > 10_000_000_000:
+                    ts = ts // 1000
+                return ts
+        return None
+
+    def _compute_session_version(
+        self, session_data: Dict[str, Any]
+    ) -> Tuple[Optional[int], str]:
+        source_updated_at = self._coerce_timestamp(
+            session_data.get("lastModified") or session_data.get("creationDate")
+        )
+        canonical = json.dumps(
+            session_data,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        session_hash = hashlib.md5(canonical.encode("utf-8")).hexdigest()
+        return source_updated_at, session_hash
+
+    @staticmethod
+    def _should_reprocess(
+        latest: Optional[Dict[str, Any]],
+        source_updated_at: Optional[int],
+        session_hash: str,
+    ) -> bool:
+        if latest is None:
+            return True
+
+        latest_updated_raw = latest.get("source_updated_at")
+        latest_hash = latest.get("session_hash")
+        latest_updated = (
+            int(latest_updated_raw) if latest_updated_raw is not None else None
+        )
+
+        if latest_updated is None and not latest_hash:
+            return True
+        if source_updated_at is not None and latest_updated is None:
+            return True
+        if (
+            source_updated_at is not None
+            and latest_updated is not None
+            and source_updated_at > latest_updated
+        ):
+            return True
+        if latest_hash is None:
+            return True
+        if session_hash != latest_hash:
+            return True
+        return False
 
     def __init__(
         self,
@@ -126,7 +193,19 @@ class CopilotScanner(Scanner):
                                 state.update_file_state(session_file, "")
                             continue
 
-                        if db.get_processed_session(session_id, agent):
+                        source_updated_at, session_hash = self._compute_session_version(
+                            session_data
+                        )
+                        latest = db.get_latest_processed_session(
+                            agent=agent,
+                            session_id=session_id,
+                            processor="default",
+                        )
+                        if not self._should_reprocess(
+                            latest=latest,
+                            source_updated_at=source_updated_at,
+                            session_hash=session_hash,
+                        ):
                             if state:
                                 state.update_file_state(session_file, session_id)
                             continue

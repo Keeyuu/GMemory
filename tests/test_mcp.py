@@ -384,3 +384,278 @@ class TestStatsTools:
 
         assert len(result) == 1
         assert result[0]["name"] == "balanced"
+
+
+class TestWorkflowTools:
+    """Test workflow-related MCP tools."""
+
+    @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
+    def test_gmemory_mark_session_applied_or_noop(self, mock_db_cls: MagicMock) -> None:
+        """gmemory_mark_session should return applied/noop result envelope."""
+        db = MagicMock()
+        db.mark_session_processed_versioned.return_value = {
+            "result": "noop",
+            "current_latest": {
+                "session_id": "ses-1",
+                "agent": "opencode",
+                "source_updated_at": 100,
+                "session_hash": "abc",
+            },
+        }
+        mock_db_cls.return_value = db
+
+        from gmemory.mcp.tools.workflow import register_workflow_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_workflow_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_mark_session":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func(
+            session_id="ses-1",
+            agent="opencode",
+            source_updated_at=100,
+            session_hash="abc",
+            idempotency_key="key-1",
+        )
+        result = json.loads(result_json)
+
+        assert result["ok"] is True
+        assert result["result"] == "noop"
+
+    @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
+    def test_gmemory_mark_session_conflict(self, mock_db_cls: MagicMock) -> None:
+        """gmemory_mark_session should map stale writes to CONFLICT."""
+        db = MagicMock()
+        db.mark_session_processed_versioned.return_value = {
+            "result": "conflict",
+            "current_latest": {
+                "session_id": "ses-1",
+                "agent": "opencode",
+                "source_updated_at": 200,
+                "session_hash": "new",
+            },
+        }
+        mock_db_cls.return_value = db
+
+        from gmemory.mcp.tools.workflow import register_workflow_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_workflow_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_mark_session":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func(
+            session_id="ses-1",
+            agent="opencode",
+            source_updated_at=100,
+            session_hash="old",
+            idempotency_key="key-2",
+        )
+        result = json.loads(result_json)
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "CONFLICT"
+        assert "current_latest" in result["error"]["details"]
+
+    @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
+    def test_gmemory_get_processed_status_batch(self, mock_db_cls: MagicMock) -> None:
+        """gmemory_get_processed_status should support batch with needs_reprocess."""
+        db = MagicMock()
+        db.get_latest_processed_session.side_effect = [
+            {
+                "session_id": "ses-1",
+                "agent": "opencode",
+                "source_updated_at": 100,
+                "session_hash": "aaa",
+            },
+            None,
+        ]
+        mock_db_cls.return_value = db
+
+        from gmemory.mcp.tools.workflow import register_workflow_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_workflow_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_get_processed_status":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func(
+            items_json=json.dumps(
+                [
+                    {
+                        "session_id": "ses-1",
+                        "agent": "opencode",
+                        "source_updated_at": 101,
+                        "session_hash": "bbb",
+                    },
+                    {
+                        "session_id": "ses-2",
+                        "agent": "opencode",
+                        "source_updated_at": 1,
+                        "session_hash": "ccc",
+                    },
+                ]
+            )
+        )
+        result = json.loads(result_json)
+
+        assert result["ok"] is True
+        assert result["count"] == 2
+        assert result["results"][0]["needs_reprocess"] is True
+        assert result["results"][1]["needs_reprocess"] is True
+
+    @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
+    def test_workflow_full_loop_reprocess_status_transition(
+        self, mock_db_cls: MagicMock
+    ) -> None:
+        """Full loop: mark v1 -> clean, source update -> reprocess, mark v2 -> clean."""
+        db = MagicMock()
+        db.mark_session_processed_versioned.side_effect = [
+            {
+                "result": "applied",
+                "current_latest": {
+                    "session_id": "ses-loop",
+                    "agent": "opencode",
+                    "source_updated_at": 100,
+                    "session_hash": "h1",
+                },
+            },
+            {
+                "result": "applied",
+                "current_latest": {
+                    "session_id": "ses-loop",
+                    "agent": "opencode",
+                    "source_updated_at": 101,
+                    "session_hash": "h2",
+                },
+            },
+        ]
+        db.get_latest_processed_session.side_effect = [
+            {
+                "session_id": "ses-loop",
+                "agent": "opencode",
+                "source_updated_at": 100,
+                "session_hash": "h1",
+            },
+            {
+                "session_id": "ses-loop",
+                "agent": "opencode",
+                "source_updated_at": 100,
+                "session_hash": "h1",
+            },
+            {
+                "session_id": "ses-loop",
+                "agent": "opencode",
+                "source_updated_at": 101,
+                "session_hash": "h2",
+            },
+        ]
+        mock_db_cls.return_value = db
+
+        from gmemory.mcp.tools.workflow import register_workflow_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_workflow_tools(server)
+
+        mark_func = None
+        status_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_mark_session":
+                mark_func = tool.fn
+            if tool.name == "gmemory_get_processed_status":
+                status_func = tool.fn
+
+        assert mark_func is not None
+        assert status_func is not None
+
+        first_mark = json.loads(
+            mark_func(
+                session_id="ses-loop",
+                agent="opencode",
+                source_updated_at=100,
+                session_hash="h1",
+                idempotency_key="loop-1",
+            )
+        )
+        assert first_mark["ok"] is True
+        assert first_mark["result"] == "applied"
+
+        first_status = json.loads(
+            status_func(
+                items_json=json.dumps(
+                    [
+                        {
+                            "session_id": "ses-loop",
+                            "agent": "opencode",
+                            "source_updated_at": 100,
+                            "session_hash": "h1",
+                        }
+                    ]
+                )
+            )
+        )
+        assert first_status["results"][0]["needs_reprocess"] is False
+
+        updated_status = json.loads(
+            status_func(
+                items_json=json.dumps(
+                    [
+                        {
+                            "session_id": "ses-loop",
+                            "agent": "opencode",
+                            "source_updated_at": 101,
+                            "session_hash": "h2",
+                        }
+                    ]
+                )
+            )
+        )
+        assert updated_status["results"][0]["needs_reprocess"] is True
+
+        second_mark = json.loads(
+            mark_func(
+                session_id="ses-loop",
+                agent="opencode",
+                source_updated_at=101,
+                session_hash="h2",
+                idempotency_key="loop-2",
+            )
+        )
+        assert second_mark["ok"] is True
+        assert second_mark["result"] == "applied"
+
+        final_status = json.loads(
+            status_func(
+                items_json=json.dumps(
+                    [
+                        {
+                            "session_id": "ses-loop",
+                            "agent": "opencode",
+                            "source_updated_at": 101,
+                            "session_hash": "h2",
+                        }
+                    ]
+                )
+            )
+        )
+        assert final_status["results"][0]["needs_reprocess"] is False

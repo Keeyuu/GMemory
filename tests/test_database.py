@@ -1,5 +1,6 @@
 """Tests for database operations."""
 
+import json
 import pytest
 import tempfile
 import os
@@ -275,11 +276,145 @@ class TestMemoryDatabase:
         assert temp_db.count_imported_sessions("opencode") == 1
         assert temp_db.count_unprocessed_imported_sessions("opencode") == 1
 
-        temp_db.add_processed_session(
-            ProcessedSession(agent="opencode", session_id="imported-001")
+        imported_row = temp_db.list_imported_sessions(agent="opencode", limit=10)[0]
+        payload_raw = str(imported_row["payload"])
+        payload = json.loads(payload_raw)
+        source_updated_at, session_hash = temp_db._extract_imported_session_version(
+            payload_raw=payload_raw,
+            payload=payload,
+        )
+        temp_db.mark_session_processed(
+            agent="opencode",
+            session_id="imported-001",
+            source_updated_at=source_updated_at,
+            session_hash=session_hash,
+            processor="default",
         )
 
         assert temp_db.count_unprocessed_imported_sessions("opencode") == 0
         assert (
             temp_db.get_unprocessed_imported_sessions(limit=10, agent="opencode") == []
         )
+
+    def test_list_and_delete_imported_sessions(self, temp_db):
+        """Should list and delete imported session queue entries by agent."""
+        first = Session(
+            session_id="import-clean-001",
+            agent="opencode",
+            project_path="C:/proj",
+            project_name="proj",
+            started_at="1770000100",
+            messages=[Message(role="user", content="hello")],
+        )
+        second = Session(
+            session_id="import-clean-002",
+            agent="opencode",
+            project_path="C:/proj",
+            project_name="proj",
+            started_at="1770000200",
+            messages=[Message(role="user", content="world")],
+        )
+
+        temp_db.upsert_imported_session(
+            session=first,
+            source_scanner="opencode",
+            source_path="C:/external",
+        )
+        temp_db.upsert_imported_session(
+            session=second,
+            source_scanner="opencode",
+            source_path="C:/external",
+        )
+
+        listed = temp_db.list_imported_sessions(agent="opencode", limit=10)
+        assert len(listed) == 2
+        assert {item["session_id"] for item in listed} == {
+            "import-clean-001",
+            "import-clean-002",
+        }
+
+        deleted = temp_db.delete_imported_sessions(
+            agent="opencode",
+            session_ids=["import-clean-001"],
+        )
+        assert deleted == 1
+
+        listed_after = temp_db.list_imported_sessions(agent="opencode", limit=10)
+        assert len(listed_after) == 1
+        assert listed_after[0]["session_id"] == "import-clean-002"
+
+    def test_list_processed_sessions(self, temp_db):
+        """Should list processed session rows with agent filter."""
+        temp_db.add_processed_session(
+            ProcessedSession(agent="opencode", session_id="processed-op-001")
+        )
+        temp_db.add_processed_session(
+            ProcessedSession(agent="opencode", session_id="processed-op-002")
+        )
+        temp_db.add_processed_session(
+            ProcessedSession(agent="github-copilot", session_id="processed-cp-001")
+        )
+
+        opencode_rows = temp_db.list_processed_sessions(agent="opencode", limit=10)
+        assert len(opencode_rows) == 2
+        assert {row["session_id"] for row in opencode_rows} == {
+            "processed-op-001",
+            "processed-op-002",
+        }
+
+        all_rows = temp_db.list_processed_sessions(agent="all", limit=10)
+        assert len(all_rows) == 3
+
+    def test_processed_session_versioned_noop_by_idempotency(self, temp_db):
+        """Same idempotency key should return noop and keep single row."""
+        first = temp_db.mark_session_processed_versioned(
+            agent="opencode",
+            session_id="ses-version-001",
+            source_updated_at=100,
+            session_hash="hash-a",
+            processor="workflow",
+            idempotency_key="idem-001",
+        )
+        second = temp_db.mark_session_processed_versioned(
+            agent="opencode",
+            session_id="ses-version-001",
+            source_updated_at=100,
+            session_hash="hash-a",
+            processor="workflow",
+            idempotency_key="idem-001",
+        )
+
+        assert first["result"] == "applied"
+        assert second["result"] == "noop"
+
+        latest = temp_db.get_latest_processed_session(
+            "opencode",
+            "ses-version-001",
+            "workflow",
+        )
+        assert latest is not None
+        assert latest["session_hash"] == "hash-a"
+
+    def test_processed_session_versioned_conflict_on_stale_update(self, temp_db):
+        """Older source_updated_at should be rejected as conflict."""
+        temp_db.mark_session_processed_versioned(
+            agent="opencode",
+            session_id="ses-version-002",
+            source_updated_at=200,
+            session_hash="hash-new",
+            processor="workflow",
+            idempotency_key="idem-002",
+        )
+
+        stale = temp_db.mark_session_processed_versioned(
+            agent="opencode",
+            session_id="ses-version-002",
+            source_updated_at=100,
+            session_hash="hash-old",
+            processor="workflow",
+            idempotency_key="idem-003",
+        )
+
+        assert stale["result"] == "conflict"
+        assert stale["error_code"] == "CONFLICT"
+        assert stale["current_latest"]["source_updated_at"] == 200

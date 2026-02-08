@@ -109,6 +109,11 @@ class ProcessedSession:
     processed_at: int = field(default_factory=lambda: int(time.time()))
     status: str = "processed"
     reason: Optional[str] = None
+    source_updated_at: Optional[int] = None
+    session_hash: Optional[str] = None
+    processor: str = "default"
+    run_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -121,4 +126,9 @@ class ProcessedSession:
             processed_at=data.get("processed_at", int(time.time())),
             status=data.get("status", "processed"),
             reason=data.get("reason"),
+            source_updated_at=data.get("source_updated_at"),
+            session_hash=data.get("session_hash"),
+            processor=data.get("processor", "default"),
+            run_id=data.get("run_id"),
+            idempotency_key=data.get("idempotency_key"),
         )

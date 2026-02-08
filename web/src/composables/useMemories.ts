@@ -1,16 +1,20 @@
 import { ref } from 'vue'
 import type {
   BackupItem,
+  ExternalCleanupResult,
+  ExternalImportPreview,
   BackupSettings,
   ExternalImportResult,
   Memory,
   MemoryStats,
+  NativeGhostCleanupResult,
   SearchResult,
 } from '../types/memory'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
 const memories = ref<Memory[]>([])
+const stats = ref<MemoryStats | null>(null)
 
 interface ListMemoriesOptions {
   limit?: number
@@ -106,7 +110,9 @@ export function useMemories() {
   }
 
   const getStats = async (): Promise<MemoryStats> => {
-    return request<MemoryStats>('/stats')
+    const data = await request<MemoryStats>('/stats')
+    stats.value = data
+    return data
   }
 
   const getMemory = async (id: string): Promise<Memory | undefined> => {
@@ -213,8 +219,54 @@ export function useMemories() {
     })
   }
 
+  const previewExternalProviderImport = async (
+    folderPath: string,
+    scannerType: string,
+    limit = 500,
+  ): Promise<ExternalImportPreview> => {
+    return request<ExternalImportPreview>('/import/external/preview', {
+      method: 'POST',
+      body: JSON.stringify({
+        folder_path: folderPath,
+        scanner_type: scannerType,
+        limit,
+      }),
+    })
+  }
+
+  const cleanupExternalImportedSessions = async (
+    scannerType: string,
+    options: { dryRun?: boolean; olderThanSeconds?: number; limit?: number; confirmToken?: string } = {},
+  ): Promise<ExternalCleanupResult> => {
+    return request<ExternalCleanupResult>('/import/external/cleanup', {
+      method: 'POST',
+      body: JSON.stringify({
+        scanner_type: scannerType,
+        dry_run: options.dryRun ?? true,
+        older_than_seconds: Math.max(0, Number(options.olderThanSeconds ?? 0) || 0),
+        limit: Math.max(1, Number(options.limit ?? 1000) || 1000),
+        confirm_token: options.confirmToken ?? null,
+      }),
+    })
+  }
+
+  const cleanupNativeGhostSessions = async (
+    options: { scannerType?: string; dryRun?: boolean; limit?: number; confirmToken?: string } = {},
+  ): Promise<NativeGhostCleanupResult> => {
+    return request<NativeGhostCleanupResult>('/sessions/native/ghost-cleanup', {
+      method: 'POST',
+      body: JSON.stringify({
+        scanner_type: options.scannerType ?? 'all',
+        dry_run: options.dryRun ?? true,
+        limit: Math.max(1, Number(options.limit ?? 5000) || 5000),
+        confirm_token: options.confirmToken ?? null,
+      }),
+    })
+  }
+
   return {
     memories,
+    stats,
     getMemories,
     getAllMemories,
     getRecentMemories,
@@ -229,6 +281,9 @@ export function useMemories() {
     listBackups,
     createBackup,
     restoreBackup,
+    previewExternalProviderImport,
     importExternalProvider,
+    cleanupExternalImportedSessions,
+    cleanupNativeGhostSessions,
   }
 }

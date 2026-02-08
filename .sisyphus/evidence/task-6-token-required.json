@@ -1,0 +1,5 @@
+{
+  "command": "uv run pytest tests/test_native_cleanup.py tests/test_import_external.py tests/test_webapi.py",
+  "result": "PASS",
+  "notes": "Validation guard verified: cleanup apply without confirm_token returns VALIDATION_ERROR."
+}

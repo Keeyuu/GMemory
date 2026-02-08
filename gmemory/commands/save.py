@@ -110,8 +110,32 @@ def save_memory(
         # Initialize Database
         db = MemoryDatabase()
 
-        # Save Memory
-        db.add_memory(memory, embedding if embedding_stored else None)
+        existing_active = db.get_active_memory_by_source_session(
+            agent=agent,
+            source_session_id=session_id,
+        )
+        is_same_payload = False
+
+        if existing_active:
+            existing_tags = sorted(existing_active.tags or [])
+            incoming_tags = sorted(tags_list)
+            is_same_payload = (
+                existing_active.content == memory.content
+                and existing_tags == incoming_tags
+                and existing_active.importance == memory.importance
+                and existing_active.memory_type == memory.memory_type
+            )
+            if is_same_payload:
+                memory_id = existing_active.id
+            else:
+                db.supersede_memory(
+                    old_memory_id=existing_active.id,
+                    new_memory=memory,
+                    embedding=embedding if embedding_stored else None,
+                )
+        else:
+            # Save Memory
+            db.add_memory(memory, embedding if embedding_stored else None)
 
         # Mark Session as Processed
         processed_session = ProcessedSession(
@@ -125,7 +149,7 @@ def save_memory(
 
         result = {
             "memory_id": memory_id,
-            "created": True,
+            "created": existing_active is None or not is_same_payload,
             "session_marked": True,
             "embedding_stored": embedding_stored,
         }
