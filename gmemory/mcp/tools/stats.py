@@ -6,13 +6,13 @@ Each tool returns a JSON string for client-side consumption.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from mcp.types import ToolAnnotations
 
 from gmemory.commands.profiles import list_profiles
 from gmemory.commands.stats import get_stats
+from gmemory.mcp.response import dumps_json, error_json
 
 
 def register_stats_tools(server: Any) -> None:
@@ -41,8 +41,11 @@ def register_stats_tools(server: Any) -> None:
             - by_importance
         """
 
-        stats: dict[str, Any] = get_stats()
-        return json.dumps(stats, ensure_ascii=False)
+        try:
+            stats: dict[str, Any] = get_stats()
+            return dumps_json(stats)
+        except Exception as exc:  # pragma: no cover - defensive
+            return error_json("INTERNAL", str(exc), error_mode="string")
 
     @server.tool(
         name="gmemory_profiles",
@@ -63,5 +66,8 @@ def register_stats_tools(server: Any) -> None:
             - fts_weight
         """
 
-        profiles = [profile.to_dict() for profile in list_profiles()]
-        return json.dumps(profiles, ensure_ascii=False)
+        try:
+            profiles = [profile.to_dict() for profile in list_profiles()]
+            return dumps_json(profiles)
+        except Exception as exc:  # pragma: no cover - defensive
+            return error_json("INTERNAL", str(exc), error_mode="string")

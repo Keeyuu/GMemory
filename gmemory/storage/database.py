@@ -1110,6 +1110,7 @@ class MemoryDatabase:
                         agent=row_agent,
                         session_id=row_session_id,
                         processor="default",
+                        any_agent=True,
                     ),
                     source_updated_at=source_updated_at,
                     session_hash=session_hash,
@@ -1257,6 +1258,7 @@ class MemoryDatabase:
                     agent=str(row["agent"]),
                     session_id=str(row["session_id"]),
                     processor="default",
+                    any_agent=True,
                 ),
                 source_updated_at=source_updated_at,
                 session_hash=session_hash,
@@ -1548,18 +1550,32 @@ class MemoryDatabase:
         agent: str,
         session_id: str,
         processor: str = "default",
+        any_agent: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Get latest processed-state row for one session."""
-        cursor = self.conn.execute(
-            """
-            SELECT session_id, agent, processed_at, status, reason,
-                   source_updated_at, session_hash, processor, run_id, idempotency_key
-            FROM processed_sessions
-            WHERE agent = ? AND session_id = ? AND processor = ?
-            LIMIT 1
-            """,
-            (agent, session_id, processor),
-        )
+        if any_agent:
+            cursor = self.conn.execute(
+                """
+                SELECT session_id, agent, processed_at, status, reason,
+                       source_updated_at, session_hash, processor, run_id, idempotency_key
+                FROM processed_sessions
+                WHERE session_id = ? AND processor = ?
+                ORDER BY processed_at DESC
+                LIMIT 1
+                """,
+                (session_id, processor),
+            )
+        else:
+            cursor = self.conn.execute(
+                """
+                SELECT session_id, agent, processed_at, status, reason,
+                       source_updated_at, session_hash, processor, run_id, idempotency_key
+                FROM processed_sessions
+                WHERE agent = ? AND session_id = ? AND processor = ?
+                LIMIT 1
+                """,
+                (agent, session_id, processor),
+            )
         row = cursor.fetchone()
         return dict(row) if row else None
 

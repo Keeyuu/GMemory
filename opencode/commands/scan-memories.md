@@ -13,16 +13,19 @@ description: (opencode - Command) Exhaustively scan ALL unprocessed sessions via
     *   在开始前，先向 Subagent 明确：**必须优先使用 GMemory MCP 工具链，不要混用模糊的自定义逻辑**。
     *   必须遵守以下顺序（除非当前步骤无数据）：
         1. `gmemory_stats`：确认 `unprocessed_sessions` 基线。
-        2. `gmemory_quick_search` / `gmemory_search --compact`：先查已有记忆，避免重复入库。
-        3. `session_read`：读取会话正文（必要时 `include_transcript=true`）。
-        4. `gmemory_add` / `gmemory_update`：写入或更新（必须同时提供 `preview` + `content`）。
-        5. `gmemory_mark` / `gmemory mark --session-id`：仅在写入成功后标记该会话已处理。
-        6. `gmemory_get`：抽查新写入 ID，验证内容和标签是否正确。
-        7. `gmemory_stats` / `gmemory_recent`：复核写入结果与数量变化。
+        2. `gmemory_session_list(limit=100, state="unprocessed", agent="all", scanner_type="all")`：获取待处理会话列表（仅使用此列表，不依赖 `session_list`）。
+        3. 若 `has_more=true`，继续调用 `gmemory_session_list` 直到拉取完成。
+        4. `session_read`：按 `gmemory_session_list` 返回的 `session_id` 读取正文（必要时 `include_transcript=true`）。
+        5. `gmemory_quick_search` / `gmemory_search --compact`：先查已有记忆，避免重复入库。
+        6. `gmemory_add` / `gmemory_update`：写入或更新（必须同时提供 `preview` + `content`）。
+        7. `gmemory_mark_session`：仅在写入成功后标记该会话已处理。
+        8. `gmemory_get`：抽查新写入 ID，验证内容和标签是否正确。
+        9. `gmemory_stats` / `gmemory_recent`：复核写入结果与数量变化。
     *   若工具报错，Subagent 必须记录错误原因、重试策略和最终状态，不能静默失败。
 
 1.  **评估积压 (Assessment)**:
-    *   运行 `gmemory_stats` 查看 `unprocessed_sessions` 的列表或数量。
+    *   运行 `gmemory_stats` 查看 `unprocessed_sessions` 数量。
+    *   运行 `gmemory_session_list(limit=100, state="unprocessed", agent="all", scanner_type="all")` 获取本轮会话列表。
     *   如果数量为 0，直接结束并报告。
 
 2.  **委托执行 (Delegation)**:
@@ -43,7 +46,7 @@ description: (opencode - Command) Exhaustively scan ALL unprocessed sessions via
             *   `project_path`: 必须推断并填入。
         *   **返回格式**: 执行完毕后，向我汇报一份结构化清单，包含：`Session ID`, `Memory ID`, `Preview` (内容简要概述,必须是一句话讲清), `Tags`。
         *   **MCP 执行证据 (Required)**:
-            *   报告中必须附带关键调用证据：本轮 `gmemory_add`/`gmemory_update` 的 ID 列表、对应 `session_id -> mark` 映射、抽查过的 `gmemory_get` 结果摘要、前后 `gmemory_stats` 对比。
+            *   报告中必须附带关键调用证据：本轮 `gmemory_session_list` 的会话总数、`gmemory_add`/`gmemory_update` 的 ID 列表、对应 `session_id -> gmemory_mark_session` 映射、抽查过的 `gmemory_get` 结果摘要、前后 `gmemory_stats` 对比。
 
 3.  **审核与报告 (Review & Report)**:
     *   检查 Subagent 的执行结果。

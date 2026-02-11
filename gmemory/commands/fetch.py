@@ -4,24 +4,9 @@ from typing import Dict, Any, Optional, List
 
 from gmemory.config import config
 from gmemory.scanner.base import ScannerRegistry
-from gmemory.storage.database import MemoryDatabase
 
 # Import to trigger registration
 from gmemory.scanner import opencode, copilot  # noqa: F401
-
-
-def _fetch_imported_unprocessed_sessions(
-    limit: int,
-    agent: Optional[str],
-) -> List[Any]:
-    if limit <= 0:
-        return []
-
-    db = MemoryDatabase()
-    try:
-        return db.get_unprocessed_imported_sessions(limit=limit, agent=agent)
-    finally:
-        db.close()
 
 
 def fetch_unprocessed_sessions(
@@ -47,22 +32,15 @@ def fetch_unprocessed_sessions(
     if agent and not scanner_type and agent != "all":
         requested_scanner = agent
 
+    if limit <= 0:
+        return {"sessions": [], "has_more": False, "remaining": 0}
+
     if requested_scanner == "all":
-        imported_agent = agent if agent and agent != "all" else None
-        sessions = _fetch_imported_unprocessed_sessions(
-            limit=limit, agent=imported_agent
-        )
-        seen_ids = set()
-        for imported in sessions:
-            seen_ids.add(f"{imported.agent}:{imported.session_id}")
-
         available_scanners = sorted(ScannerRegistry.list_scanners())
-
         if not available_scanners:
-            sessions_data = [session.to_dict() for session in sessions]
             return {
-                "sessions": sessions_data,
-                "has_more": len(sessions) >= limit,
+                "sessions": [],
+                "has_more": False,
                 "remaining": 0,
             }
 
@@ -77,62 +55,45 @@ def fetch_unprocessed_sessions(
             target_scanners = [agent]
         else:
             target_scanners = available_scanners
-
-        for scanner_name in target_scanners:
-            if len(sessions) >= limit:
-                break
-
-            scanner = ScannerRegistry.create(
-                name=scanner_name,
-                agent=scanner_name,
-                incremental=True,
-            )
-            if scanner is None:
-                continue
-
-            remaining_limit = max(1, limit - len(sessions))
-            scanned_sessions = scanner.get_unprocessed_sessions(remaining_limit)
-            for scanned in scanned_sessions:
-                session_key = f"{scanned.agent}:{scanned.session_id}"
-                if session_key in seen_ids:
-                    continue
-                seen_ids.add(session_key)
-                sessions.append(scanned)
-                if len(sessions) >= limit:
-                    break
     else:
-        effective_agent = agent or requested_scanner
-        sessions = _fetch_imported_unprocessed_sessions(
-            limit=limit,
-            agent=effective_agent,
-        )
-        seen_ids = {f"{item.agent}:{item.session_id}" for item in sessions}
+        target_scanners = [requested_scanner]
 
+    sessions: List[Any] = []
+    seen_ids = set()
+    for scanner_name in target_scanners:
+        if len(sessions) >= limit:
+            break
+
+        scanner_agent = (
+            agent
+            if (agent and agent != "all" and requested_scanner != "all")
+            else scanner_name
+        )
         scanner = ScannerRegistry.create(
-            name=requested_scanner,
-            agent=effective_agent,
+            name=scanner_name,
+            agent=scanner_agent,
             incremental=True,
         )
-
         if scanner is None:
-            return {
-                "sessions": [],
-                "has_more": False,
-                "remaining": 0,
-                "error": f"Unknown scanner type: {requested_scanner}. Available: {ScannerRegistry.list_scanners()}",
-            }
+            if requested_scanner != "all":
+                return {
+                    "sessions": [],
+                    "has_more": False,
+                    "remaining": 0,
+                    "error": f"Unknown scanner type: {requested_scanner}. Available: {ScannerRegistry.list_scanners()}",
+                }
+            continue
 
-        remaining_limit = max(0, limit - len(sessions))
-        if remaining_limit > 0:
-            scanned_sessions = scanner.get_unprocessed_sessions(remaining_limit)
-            for scanned in scanned_sessions:
-                session_key = f"{scanned.agent}:{scanned.session_id}"
-                if session_key in seen_ids:
-                    continue
-                seen_ids.add(session_key)
-                sessions.append(scanned)
-                if len(sessions) >= limit:
-                    break
+        remaining_limit = max(1, limit - len(sessions))
+        scanned_sessions = scanner.get_unprocessed_sessions(remaining_limit)
+        for scanned in scanned_sessions:
+            session_key = f"{scanned.agent}:{scanned.session_id}"
+            if session_key in seen_ids:
+                continue
+            seen_ids.add(session_key)
+            sessions.append(scanned)
+            if len(sessions) >= limit:
+                break
 
     # Convert Session objects to dictionaries for JSON serialization
     sessions_data = [session.to_dict() for session in sessions]

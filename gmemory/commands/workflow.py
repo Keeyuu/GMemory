@@ -14,6 +14,7 @@ from gmemory.container import get_container
 def process_sessions(
     limit: int = 5,
     agent: Optional[str] = None,
+    scanner_type: Optional[str] = None,
     auto_mark: bool = False,
     show_backlog: bool = True,
 ) -> Dict[str, Any]:
@@ -27,6 +28,7 @@ def process_sessions(
     Args:
         limit: Maximum number of sessions to fetch.
         agent: Agent type to fetch sessions for.
+        scanner_type: Scanner type to use (e.g. "opencode", "all").
         auto_mark: If True, automatically mark sessions as processed
                    even if no memory is saved (for skipping sessions).
         show_backlog: If True, include backlog statistics in response.
@@ -40,7 +42,11 @@ def process_sessions(
         - hint: Usage hint for next steps
     """
     resolved_agent = agent or "all"
-    result = fetch_unprocessed_sessions(limit=limit, agent=resolved_agent)
+    result = fetch_unprocessed_sessions(
+        limit=limit,
+        agent=resolved_agent,
+        scanner_type=scanner_type,
+    )
 
     if "error" in result:
         return result
@@ -56,7 +62,11 @@ def process_sessions(
     # Add backlog statistics
     if show_backlog:
         backlog_info = _get_backlog_stats(
-            resolved_agent, len(sessions), has_more, limit
+            resolved_agent,
+            len(sessions),
+            has_more,
+            limit,
+            scanner_type=scanner_type,
         )
         response["backlog"] = backlog_info
 
@@ -94,7 +104,11 @@ def process_sessions(
 
 
 def _get_backlog_stats(
-    agent: str, fetched: int, has_more: bool, limit: int
+    agent: str,
+    fetched: int,
+    has_more: bool,
+    limit: int,
+    scanner_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get backlog statistics for workflow visibility.
 
@@ -103,6 +117,7 @@ def _get_backlog_stats(
         fetched: Number of sessions fetched.
         has_more: Whether more sessions are available.
         limit: Fetch limit used.
+        scanner_type: Scanner type used for fetching.
 
     Returns:
         Dict with backlog statistics.
@@ -129,7 +144,11 @@ def _get_backlog_stats(
         # Estimate backlog size if has_more
         if has_more:
             # Fetch a larger sample to estimate
-            larger_result = fetch_unprocessed_sessions(limit=100, agent=agent)
+            larger_result = fetch_unprocessed_sessions(
+                limit=100,
+                agent=agent,
+                scanner_type=scanner_type,
+            )
             larger_sessions = larger_result.get("sessions", [])
             if len(larger_sessions) >= 100:
                 stats["estimated_backlog"] = "100+"

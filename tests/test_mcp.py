@@ -92,6 +92,34 @@ class TestSearchTools:
             recent_days=None,
         )
 
+    @patch("gmemory.mcp.tools.search.search_memories")
+    def test_gmemory_search_error_includes_error_envelope(
+        self, mock_search: MagicMock
+    ) -> None:
+        """gmemory_search should return unified error envelope on failure."""
+        mock_search.side_effect = RuntimeError("search failed")
+
+        from gmemory.mcp.tools.search import register_search_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_search_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_search":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func(query="test query")
+        result = json.loads(result_json)
+
+        assert result["ok"] is False
+        assert result["error"] == "search failed"
+        assert result["error_envelope"]["code"] == "INTERNAL"
+        assert result["error_envelope"]["message"] == "search failed"
+
 
 class TestCRUDTools:
     """Test CRUD-related MCP tools."""
@@ -262,7 +290,11 @@ class TestCRUDTools:
         result = json.loads(result_json)
 
         assert result["deleted"] is False
+        assert result["ok"] is False
         assert "error" in result
+        assert result["error"] == "Memory not found"
+        assert result["error_envelope"]["code"] == "VALIDATION_ERROR"
+        assert result["error_envelope"]["message"] == "Memory not found"
 
 
 class TestBrowseTools:
@@ -323,6 +355,47 @@ class TestBrowseTools:
 
         assert len(result["tags"]) == 1
         assert result["tags"][0]["tag"] == "python"
+
+    @patch("gmemory.mcp.tools.browse.recent_memories")
+    def test_gmemory_recent_keeps_memories_and_adds_results_alias(
+        self, mock_recent: MagicMock
+    ) -> None:
+        """gmemory_recent should keep memories and expose results alias."""
+        mock_recent.return_value = {
+            "memories": [
+                {
+                    "id": "mem-1",
+                    "content": "test",
+                    "tags": ["mcp"],
+                    "importance": "medium",
+                    "created_at": 1,
+                    "updated_at": 1,
+                }
+            ],
+            "total": 1,
+            "days": 7,
+            "cutoff_timestamp": 123,
+        }
+
+        from gmemory.mcp.tools.browse import register_browse_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_browse_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_recent":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func()
+        result = json.loads(result_json)
+
+        assert len(result["memories"]) == 1
+        assert len(result["results"]) == 1
+        assert result["results"] == result["memories"]
 
 
 class TestStatsTools:
@@ -437,6 +510,8 @@ class TestWorkflowTools:
         result = json.loads(result_json)
 
         assert result["ok"] is False
+        assert result["error_envelope"]["code"] == "VALIDATION_ERROR"
+        assert result["error_envelope"]["message"] == "state must be 'unprocessed'"
         assert result["error"]["code"] == "VALIDATION_ERROR"
 
     @patch("gmemory.mcp.tools.workflow.fetch_unprocessed_sessions")
@@ -513,11 +588,10 @@ class TestWorkflowTools:
             show_backlog=False,
         )
 
-    @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
-    def test_gmemory_mark_session_applied_or_noop(self, mock_db_cls: MagicMock) -> None:
+    @patch("gmemory.mcp.tools.workflow.mark_session_versioned")
+    def test_gmemory_mark_session_applied_or_noop(self, mock_mark: MagicMock) -> None:
         """gmemory_mark_session should return applied/noop result envelope."""
-        db = MagicMock()
-        db.mark_session_processed_versioned.return_value = {
+        mock_mark.return_value = {
             "result": "noop",
             "current_latest": {
                 "session_id": "ses-1",
@@ -526,7 +600,6 @@ class TestWorkflowTools:
                 "session_hash": "abc",
             },
         }
-        mock_db_cls.return_value = db
 
         from gmemory.mcp.tools.workflow import register_workflow_tools
         from mcp.server.fastmcp import FastMCP
@@ -553,11 +626,10 @@ class TestWorkflowTools:
         assert result["ok"] is True
         assert result["result"] == "noop"
 
-    @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
-    def test_gmemory_mark_session_conflict(self, mock_db_cls: MagicMock) -> None:
+    @patch("gmemory.mcp.tools.workflow.mark_session_versioned")
+    def test_gmemory_mark_session_conflict(self, mock_mark: MagicMock) -> None:
         """gmemory_mark_session should map stale writes to CONFLICT."""
-        db = MagicMock()
-        db.mark_session_processed_versioned.return_value = {
+        mock_mark.return_value = {
             "result": "conflict",
             "current_latest": {
                 "session_id": "ses-1",
@@ -566,7 +638,6 @@ class TestWorkflowTools:
                 "session_hash": "new",
             },
         }
-        mock_db_cls.return_value = db
 
         from gmemory.mcp.tools.workflow import register_workflow_tools
         from mcp.server.fastmcp import FastMCP
@@ -591,23 +662,36 @@ class TestWorkflowTools:
         result = json.loads(result_json)
 
         assert result["ok"] is False
+        assert result["error_envelope"]["code"] == "CONFLICT"
         assert result["error"]["code"] == "CONFLICT"
         assert "current_latest" in result["error"]["details"]
 
-    @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
-    def test_gmemory_get_processed_status_batch(self, mock_db_cls: MagicMock) -> None:
+    @patch("gmemory.mcp.tools.workflow.batch_get_processed_status")
+    def test_gmemory_get_processed_status_batch(self, mock_batch: MagicMock) -> None:
         """gmemory_get_processed_status should support batch with needs_reprocess."""
-        db = MagicMock()
-        db.get_latest_processed_session.side_effect = [
+        mock_batch.return_value = [
             {
                 "session_id": "ses-1",
                 "agent": "opencode",
                 "source_updated_at": 100,
                 "session_hash": "aaa",
+                "processor": "default",
+                "latest": {
+                    "session_id": "ses-1",
+                    "agent": "opencode",
+                    "source_updated_at": 100,
+                    "session_hash": "aaa",
+                },
+                "needs_reprocess": True,
             },
-            None,
+            {
+                "session_id": "ses-2",
+                "agent": "opencode",
+                "processor": "default",
+                "latest": None,
+                "needs_reprocess": True,
+            },
         ]
-        mock_db_cls.return_value = db
 
         from gmemory.mcp.tools.workflow import register_workflow_tools
         from mcp.server.fastmcp import FastMCP
@@ -644,32 +728,43 @@ class TestWorkflowTools:
 
         assert result["ok"] is True
         assert result["count"] == 2
+        assert result["total"] == 2
         assert result["results"][0]["needs_reprocess"] is True
         assert result["results"][1]["needs_reprocess"] is True
 
-    @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
+    @patch("gmemory.mcp.tools.workflow.batch_get_processed_status")
     def test_gmemory_get_processed_status_fallback_to_processed_at(
-        self, mock_db_cls: MagicMock
+        self, mock_batch: MagicMock
     ) -> None:
         """When version fields are absent, processed_at should gate reprocess."""
-        db = MagicMock()
-        db.get_latest_processed_session.side_effect = [
+        mock_batch.return_value = [
             {
                 "session_id": "ses-old",
                 "agent": "opencode",
-                "processed_at": 200,
-                "source_updated_at": None,
-                "session_hash": None,
+                "processor": "default",
+                "latest": {
+                    "session_id": "ses-old",
+                    "agent": "opencode",
+                    "processed_at": 200,
+                    "source_updated_at": None,
+                    "session_hash": None,
+                },
+                "needs_reprocess": False,
             },
             {
                 "session_id": "ses-new",
                 "agent": "opencode",
-                "processed_at": 200,
-                "source_updated_at": None,
-                "session_hash": None,
+                "processor": "default",
+                "latest": {
+                    "session_id": "ses-new",
+                    "agent": "opencode",
+                    "processed_at": 200,
+                    "source_updated_at": None,
+                    "session_hash": None,
+                },
+                "needs_reprocess": True,
             },
         ]
-        mock_db_cls.return_value = db
 
         from gmemory.mcp.tools.workflow import register_workflow_tools
         from mcp.server.fastmcp import FastMCP
@@ -704,16 +799,19 @@ class TestWorkflowTools:
 
         assert result["ok"] is True
         assert result["count"] == 2
+        assert result["total"] == 2
         assert result["results"][0]["needs_reprocess"] is False
         assert result["results"][1]["needs_reprocess"] is True
 
-    @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
+    @patch("gmemory.mcp.tools.workflow.batch_get_processed_status")
+    @patch("gmemory.mcp.tools.workflow.mark_session_versioned")
     def test_workflow_full_loop_reprocess_status_transition(
-        self, mock_db_cls: MagicMock
+        self,
+        mock_mark: MagicMock,
+        mock_batch: MagicMock,
     ) -> None:
         """Full loop: mark v1 -> clean, source update -> reprocess, mark v2 -> clean."""
-        db = MagicMock()
-        db.mark_session_processed_versioned.side_effect = [
+        mock_mark.side_effect = [
             {
                 "result": "applied",
                 "current_latest": {
@@ -733,27 +831,50 @@ class TestWorkflowTools:
                 },
             },
         ]
-        db.get_latest_processed_session.side_effect = [
-            {
-                "session_id": "ses-loop",
-                "agent": "opencode",
-                "source_updated_at": 100,
-                "session_hash": "h1",
-            },
-            {
-                "session_id": "ses-loop",
-                "agent": "opencode",
-                "source_updated_at": 100,
-                "session_hash": "h1",
-            },
-            {
-                "session_id": "ses-loop",
-                "agent": "opencode",
-                "source_updated_at": 101,
-                "session_hash": "h2",
-            },
+        mock_batch.side_effect = [
+            [
+                {
+                    "session_id": "ses-loop",
+                    "agent": "opencode",
+                    "processor": "default",
+                    "latest": {
+                        "session_id": "ses-loop",
+                        "agent": "opencode",
+                        "source_updated_at": 100,
+                        "session_hash": "h1",
+                    },
+                    "needs_reprocess": False,
+                }
+            ],
+            [
+                {
+                    "session_id": "ses-loop",
+                    "agent": "opencode",
+                    "processor": "default",
+                    "latest": {
+                        "session_id": "ses-loop",
+                        "agent": "opencode",
+                        "source_updated_at": 100,
+                        "session_hash": "h1",
+                    },
+                    "needs_reprocess": True,
+                }
+            ],
+            [
+                {
+                    "session_id": "ses-loop",
+                    "agent": "opencode",
+                    "processor": "default",
+                    "latest": {
+                        "session_id": "ses-loop",
+                        "agent": "opencode",
+                        "source_updated_at": 101,
+                        "session_hash": "h2",
+                    },
+                    "needs_reprocess": False,
+                }
+            ],
         ]
-        mock_db_cls.return_value = db
 
         from gmemory.mcp.tools.workflow import register_workflow_tools
         from mcp.server.fastmcp import FastMCP

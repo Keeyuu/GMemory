@@ -5,13 +5,13 @@ This module exposes search tools for semantic and FTS search.
 
 from __future__ import annotations
 
-import json
 from typing import Any, Optional
 
 from mcp.types import ToolAnnotations
 
 from gmemory.commands.search import search_memories
 from gmemory.commands.quick import quick_search
+from gmemory.mcp.response import dumps_json, error_json
 
 
 def register_search_tools(server: Any) -> None:
@@ -65,19 +65,22 @@ def register_search_tools(server: Any) -> None:
                 "profile": "...",  # 使用的配置名称 (如有)
             }
         """
-        result = search_memories(
-            query=query,
-            mode=mode,
-            limit=limit,
-            compact=compact,
-            project_path=project_path,
-            tags=tags,
-            recency_weight=recency_weight,
-            profile=profile,
-            explain=explain,
-            min_score=min_score,
-        )
-        return json.dumps(result, ensure_ascii=False, default=str)
+        try:
+            result = search_memories(
+                query=query,
+                mode=mode,
+                limit=limit,
+                compact=compact,
+                project_path=project_path,
+                tags=tags,
+                recency_weight=recency_weight,
+                profile=profile,
+                explain=explain,
+                min_score=min_score,
+            )
+            return dumps_json(result)
+        except Exception as exc:  # pragma: no cover - defensive
+            return error_json("INTERNAL", str(exc), error_mode="string")
 
     @server.tool(
         name="gmemory_quick_search",
@@ -109,9 +112,12 @@ def register_search_tools(server: Any) -> None:
                 "mode": "hybrid"
             }
         """
-        result = quick_search(
-            query=query,
-            limit=limit,
-            recent_days=recent_days,
-        )
-        return json.dumps(result, ensure_ascii=False, default=str)
+        try:
+            result = quick_search(
+                query=query,
+                limit=limit,
+                recent_days=recent_days,
+            )
+            return dumps_json(result)
+        except Exception as exc:  # pragma: no cover - defensive
+            return error_json("INTERNAL", str(exc), error_mode="string")

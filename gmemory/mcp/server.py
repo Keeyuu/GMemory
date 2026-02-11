@@ -41,5 +41,18 @@ def main() -> None:
     mcp.run()
 
 
+def streamable_http_app(path: Optional[str] = None) -> Any:
+    """Build Streamable HTTP app with optional route path override."""
+    if path is None:
+        return mcp.streamable_http_app()
+
+    original_path = mcp.settings.streamable_http_path
+    try:
+        mcp.settings.streamable_http_path = path
+        return mcp.streamable_http_app()
+    finally:
+        mcp.settings.streamable_http_path = original_path
+
+
 if __name__ == "__main__":
     main()

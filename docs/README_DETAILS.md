@@ -59,7 +59,10 @@ gmemory get <memory-id>
 ## 5. Web 与 API
 
 ```bash
-# 启动 API
+# 启动统一服务（目标态，API + MCP）
+gmemory-service
+
+# 启动 API（兼容入口，旧命令保留）
 gmemory-web
 
 # 启动前端
@@ -67,6 +70,12 @@ cd web
 npm install
 npm run dev
 ```
+
+Web 联调建议：
+
+- 推荐使用 `gmemory-service` + `npm run dev` 做主链路联调。
+- 若前端已提供 `/mcp` 调试页，可直接在浏览器访问并验证 MCP 工具调用。
+- 若未提供 `/mcp` 调试页，可保留 `gmemory-mcp` 或 `python -m gmemory.mcp` 作为命令行联调兜底。
 
 默认：
 
@@ -76,6 +85,10 @@ npm run dev
 ## 6. MCP
 
 ```bash
+# 启动统一服务（目标态，推荐）
+gmemory-service
+
+# 启动 MCP（兼容入口，旧命令保留）
 gmemory-mcp
 ```
 

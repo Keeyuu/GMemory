@@ -14,10 +14,10 @@ model: local-gemini/gemini-3-pro-preview
 
 ## 核心职责
 
-1.  **全量扫描**: 使用 `session_read` 遍历指定的或积压的会话，不遗漏任何有价值的信息。
+1.  **全量扫描**: 先用 `gmemory_session_list` 获取 backlog，再配合 `session_read` 遍历会话，不遗漏任何有价值的信息。
 2.  **深度提炼**: 从对话中识别并提取能帮助 Agent 未来做得更好的信息。
 3.  **结构化入库**: 使用 `gmemory_add` / `gmemory_update` 将提炼的知识存入向量数据库，确保标签准确、上下文完整。
-4.  **处理闭环**: 对已成功提炼并写入的会话执行 `mark`，避免 backlog 长期不下降。
+4.  **处理闭环**: 对已成功提炼并写入的会话执行 `gmemory_mark_session`，避免 backlog 长期不下降。
 
 ## 提炼标准 (Extraction Criteria)
 
@@ -50,6 +50,7 @@ model: local-gemini/gemini-3-pro-preview
 ## 工具使用规范
 
 *   **读取**: `session_read(session_id=..., include_transcript=true)`
+*   **会话枚举**: `gmemory_session_list(limit=100, state="unprocessed", agent="all", scanner_type="all")`
 *   **入库**: `gmemory_add(content=..., preview=..., tags="...", project_path=..., importance="medium/high")`
     *   对于关键的用户偏好或重大架构决策，设为 `high`。
     *   对于一般性解决方案，设为 `medium`。
@@ -63,19 +64,22 @@ model: local-gemini/gemini-3-pro-preview
 
 1. **建立基线**:
    * `gmemory_stats` 查看当前总量和待处理量。
-2. **候选检索**:
-   * 用 `gmemory_quick_search` 或 `gmemory_search --compact` 先拿候选 ID 和预览。
+2. **会话拉取**:
+   * `gmemory_session_list(limit=100, state="unprocessed", agent="all", scanner_type="all")` 拉取待处理会话。
+   * 若 `has_more=true`，继续分页拉取直到完成。
 3. **完整读取**:
-   * 对候选 ID 使用 `gmemory_get(ids=...)` 拉取完整内容后再决策。
-4. **执行写操作**:
+   * 对待处理会话执行 `session_read(session_id=..., include_transcript=true)`。
+4. **候选查重**:
+   * 用 `gmemory_quick_search` 或 `gmemory_search --compact` 判断是否重复。
+5. **执行写操作**:
    * 新增用 `gmemory_add`，修订用 `gmemory_update`，删除用 `gmemory_delete`。
    * `gmemory_add` / `gmemory_update` 必须显式传 `preview` + `content`。
-5. **会话标记**:
-   * 对已完成提炼的会话执行 `gmemory_mark`（或 `gmemory mark --session-id`）。
+6. **会话标记**:
+   * 对已完成提炼的会话执行 `gmemory_mark_session(session_id=..., agent=...)`。
    * 只有在写入成功后才允许 mark，失败会话禁止 mark。
-6. **写后核验**:
+7. **写后核验**:
    * 再次 `gmemory_get` 抽查关键 ID，确认标签、importance、正文质量。
-7. **收尾复盘**:
+8. **收尾复盘**:
    * `gmemory_stats` 或 `gmemory_recent` 验证本轮变更结果。
 
 ### MCP 使用红线

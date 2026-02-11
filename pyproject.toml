@@ -23,6 +23,7 @@ dependencies = [
 gmemory = "gmemory.__main__:main"
 gmemory-mcp = "gmemory.mcp:main"
 gmemory-web = "gmemory.webapi:main"
+gmemory-service = "gmemory.service:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["gmemory"]

@@ -5,7 +5,6 @@ This module exposes tools for creating, reading, updating, and deleting memories
 
 from __future__ import annotations
 
-import json
 from typing import Any, Optional
 
 from mcp.types import ToolAnnotations
@@ -14,6 +13,7 @@ from gmemory.commands.get import get_memories
 from gmemory.commands.add import add_memory
 from gmemory.commands.update import update_memory
 from gmemory.commands.delete import delete_memory
+from gmemory.mcp.response import dumps_json, build_error_payload
 
 
 def register_crud_tools(server: Any) -> None:
@@ -62,10 +62,19 @@ def register_crud_tools(server: Any) -> None:
         # Parse comma-separated IDs
         id_list = [id.strip() for id in ids.split(",") if id.strip()]
         if not id_list:
-            return json.dumps({"results": [], "found": 0, "missing": None})
+            return dumps_json({"results": [], "found": 0, "missing": None})
 
-        result = get_memories(ids=id_list, include_metadata=include_metadata)
-        return json.dumps(result, ensure_ascii=False, default=str)
+        try:
+            result = get_memories(ids=id_list, include_metadata=include_metadata)
+            return dumps_json(result)
+        except Exception as e:
+            return dumps_json(
+                build_error_payload(
+                    code="INTERNAL",
+                    message=str(e),
+                    error_mode="string",
+                )
+            )
 
     @server.tool(
         name="gmemory_add",
@@ -110,13 +119,17 @@ def register_crud_tools(server: Any) -> None:
                 project_name=project_name,
                 require_embedding=True,
             )
-            return json.dumps(result, ensure_ascii=False, default=str)
+            return dumps_json(result)
         except Exception as e:
-            return json.dumps(
+            return dumps_json(
                 {
+                    **build_error_payload(
+                        code="INTERNAL",
+                        message=str(e),
+                        error_mode="string",
+                    ),
                     "id": None,
                     "created": False,
-                    "error": str(e),
                 }
             )
 
@@ -167,21 +180,29 @@ def register_crud_tools(server: Any) -> None:
                 project_name=project_name,
                 require_embedding=True,
             )
-            return json.dumps(result, ensure_ascii=False, default=str)
+            return dumps_json(result)
         except ValueError as e:
-            return json.dumps(
+            return dumps_json(
                 {
+                    **build_error_payload(
+                        code="VALIDATION_ERROR",
+                        message=str(e),
+                        error_mode="string",
+                    ),
                     "id": mem_id,
                     "updated": False,
-                    "error": str(e),
                 }
             )
         except Exception as e:
-            return json.dumps(
+            return dumps_json(
                 {
+                    **build_error_payload(
+                        code="INTERNAL",
+                        message=str(e),
+                        error_mode="string",
+                    ),
                     "id": mem_id,
                     "updated": False,
-                    "error": str(e),
                 }
             )
 
@@ -205,20 +226,28 @@ def register_crud_tools(server: Any) -> None:
         """
         try:
             result = delete_memory(mem_id=mem_id)
-            return json.dumps(result, ensure_ascii=False, default=str)
+            return dumps_json(result)
         except ValueError as e:
-            return json.dumps(
+            return dumps_json(
                 {
+                    **build_error_payload(
+                        code="VALIDATION_ERROR",
+                        message=str(e),
+                        error_mode="string",
+                    ),
                     "id": mem_id,
                     "deleted": False,
-                    "error": str(e),
                 }
             )
         except Exception as e:
-            return json.dumps(
+            return dumps_json(
                 {
+                    **build_error_payload(
+                        code="INTERNAL",
+                        message=str(e),
+                        error_mode="string",
+                    ),
                     "id": mem_id,
                     "deleted": False,
-                    "error": str(e),
                 }
             )

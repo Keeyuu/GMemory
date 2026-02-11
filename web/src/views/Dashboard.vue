@@ -293,7 +293,7 @@ onMounted(loadDashboard)
     <ConfirmDialog
       v-if="showNativeCleanupConfirm"
       title="Cleanup Local Ghost Records"
-      message="This will delete local processed-session markers that no longer exist in native scanner logs. This operation does not touch external imported queues."
+      message="This will delete local processed-session markers that no longer exist in native scanner logs."
       confirm-text="Cleanup Now"
       type="warning"
       :loading="nativeCleanupLoading"

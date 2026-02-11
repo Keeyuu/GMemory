@@ -21,7 +21,7 @@ const navItems = [
   { name: 'memories', label: 'Memories', icon: 'i-carbon-document-view' },
   { name: 'search', label: 'Search', icon: 'i-carbon-search' },
   { name: 'backup', label: 'Backup', icon: 'i-carbon-data-backup' },
-  { name: 'import', label: 'Import', icon: 'i-carbon-upload' },
+  { name: 'mcp-debug', label: 'MCP Debug', icon: 'i-carbon-debug' },
 ]
 
 const isActive = (name: string) => {

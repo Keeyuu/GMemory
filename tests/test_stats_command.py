@@ -21,6 +21,7 @@ def test_get_stats_counts_only_processed_sessions_present_in_native_source(
     db = MemoryDatabase()
     try:
         db.add_processed_session(ProcessedSession(agent="opencode", session_id="s-001"))
+        db.add_processed_session(ProcessedSession(agent="sisyphus", session_id="s-002"))
         db.add_processed_session(
             ProcessedSession(agent="opencode", session_id="ghost-999")
         )
@@ -46,7 +47,7 @@ def test_get_stats_counts_only_processed_sessions_present_in_native_source(
 
     try:
         result = stats_module.get_stats()
-        assert result["unprocessed_sessions"] == 2
+        assert result["unprocessed_sessions"] == 1
         assert "reprocess_rate" in result
         assert "hash_mismatch_rate" in result
         assert result["ghost_count"] == 1

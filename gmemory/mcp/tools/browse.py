@@ -5,7 +5,6 @@ This module exposes tools for browsing and listing memories.
 
 from __future__ import annotations
 
-import json
 from typing import Any, Optional
 
 from mcp.types import ToolAnnotations
@@ -17,6 +16,7 @@ from gmemory.commands.quick import (
     find_by_tag,
     list_all_tags,
 )
+from gmemory.mcp.response import dumps_json, error_json
 
 
 def register_browse_tools(server: Any) -> None:
@@ -63,15 +63,18 @@ def register_browse_tools(server: Any) -> None:
                 "has_more": true/false
             }
         """
-        result = list_memories(
-            limit=limit,
-            offset=offset,
-            project_path=project_path,
-            importance=importance,
-            sort_by=sort_by,
-            sort_order=sort_order,
-        )
-        return json.dumps(result, ensure_ascii=False, default=str)
+        try:
+            result = list_memories(
+                limit=limit,
+                offset=offset,
+                project_path=project_path,
+                importance=importance,
+                sort_by=sort_by,
+                sort_order=sort_order,
+            )
+            return dumps_json(result)
+        except Exception as exc:  # pragma: no cover - defensive
+            return error_json("INTERNAL", str(exc), error_mode="string")
 
     @server.tool(
         name="gmemory_recent",
@@ -104,33 +107,38 @@ def register_browse_tools(server: Any) -> None:
         if tags:
             tags_list = [t.strip() for t in tags.split(",") if t.strip()]
 
-        result = recent_memories(
-            days=days,
-            limit=limit,
-            project_path=project_path,
-            tags=tags_list,
-        )
+        try:
+            result = recent_memories(
+                days=days,
+                limit=limit,
+                project_path=project_path,
+                tags=tags_list,
+            )
 
-        # Convert Memory objects to dicts for JSON serialization
-        if result.get("memories"):
-            memories_data = []
-            for mem in result["memories"]:
-                if hasattr(mem, "id"):
-                    memories_data.append(
-                        {
-                            "id": mem.id,
-                            "content": mem.content,
-                            "tags": mem.tags,
-                            "importance": mem.importance,
-                            "created_at": mem.created_at,
-                            "updated_at": mem.updated_at,
-                        }
-                    )
-                else:
-                    memories_data.append(mem)
-            result["memories"] = memories_data
+            # Convert Memory objects to dicts for JSON serialization
+            if result.get("memories"):
+                memories_data = []
+                for mem in result["memories"]:
+                    if hasattr(mem, "id"):
+                        memories_data.append(
+                            {
+                                "id": mem.id,
+                                "content": mem.content,
+                                "tags": mem.tags,
+                                "importance": mem.importance,
+                                "created_at": mem.created_at,
+                                "updated_at": mem.updated_at,
+                            }
+                        )
+                    else:
+                        memories_data.append(mem)
+                result["memories"] = memories_data
 
-        return json.dumps(result, ensure_ascii=False, default=str)
+            result["results"] = list(result.get("memories") or [])
+
+            return dumps_json(result)
+        except Exception as exc:  # pragma: no cover - defensive
+            return error_json("INTERNAL", str(exc), error_mode="string")
 
     @server.tool(
         name="gmemory_today",
@@ -147,8 +155,11 @@ def register_browse_tools(server: Any) -> None:
                 "top_tags": [...]
             }
         """
-        result = today_summary()
-        return json.dumps(result, ensure_ascii=False, default=str)
+        try:
+            result = today_summary()
+            return dumps_json(result)
+        except Exception as exc:  # pragma: no cover - defensive
+            return error_json("INTERNAL", str(exc), error_mode="string")
 
     @server.tool(
         name="gmemory_tags",
@@ -171,8 +182,11 @@ def register_browse_tools(server: Any) -> None:
                 "showing": N
             }
         """
-        result = list_all_tags(limit=limit)
-        return json.dumps(result, ensure_ascii=False, default=str)
+        try:
+            result = list_all_tags(limit=limit)
+            return dumps_json(result)
+        except Exception as exc:  # pragma: no cover - defensive
+            return error_json("INTERNAL", str(exc), error_mode="string")
 
     @server.tool(
         name="gmemory_tag",
@@ -197,9 +211,12 @@ def register_browse_tools(server: Any) -> None:
                 "total": N
             }
         """
-        result = find_by_tag(
-            tag=tag,
-            limit=limit,
-            compact=compact,
-        )
-        return json.dumps(result, ensure_ascii=False, default=str)
+        try:
+            result = find_by_tag(
+                tag=tag,
+                limit=limit,
+                compact=compact,
+            )
+            return dumps_json(result)
+        except Exception as exc:  # pragma: no cover - defensive
+            return error_json("INTERNAL", str(exc), error_mode="string")

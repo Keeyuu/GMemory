@@ -20,11 +20,6 @@ from gmemory.commands.backup import (
 )
 from gmemory.commands.delete import delete_memory
 from gmemory.commands.get import get_memories
-from gmemory.commands.import_external import (
-    preview_external_provider_data,
-    import_external_provider_data,
-    cleanup_imported_sessions,
-)
 from gmemory.commands.list import list_memories
 from gmemory.commands.native_cleanup import cleanup_native_ghost_sessions
 from gmemory.commands.quick import (
@@ -98,20 +93,6 @@ class BackupSettingsRequest(BaseModel):
 
 class BackupRestoreRequest(BaseModel):
     backup_id: str = Field(min_length=1)
-
-
-class ExternalImportRequest(BaseModel):
-    folder_path: str = Field(min_length=1)
-    scanner_type: str = Field(min_length=1)
-    limit: int = Field(default=500, ge=1, le=5000)
-
-
-class ExternalCleanupRequest(BaseModel):
-    scanner_type: str = Field(min_length=1)
-    dry_run: bool = True
-    older_than_seconds: int = Field(default=0, ge=0, le=31_536_000)
-    limit: int = Field(default=1000, ge=1, le=5000)
-    confirm_token: Optional[str] = None
 
 
 class NativeGhostCleanupRequest(BaseModel):
@@ -377,46 +358,6 @@ async def api_backup_restore(payload: BackupRestoreRequest) -> dict[str, Any]:
         raise HTTPException(
             status_code=400, detail=result.get("error", "Restore failed")
         )
-    return result
-
-
-@app.post("/api/import/external")
-async def api_import_external(payload: ExternalImportRequest) -> dict[str, Any]:
-    result = import_external_provider_data(
-        folder_path=payload.folder_path,
-        scanner_type=payload.scanner_type,
-        limit=payload.limit,
-    )
-    if result.get("error"):
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-
-@app.post("/api/import/external/preview")
-async def api_preview_import_external(payload: ExternalImportRequest) -> dict[str, Any]:
-    result = preview_external_provider_data(
-        folder_path=payload.folder_path,
-        scanner_type=payload.scanner_type,
-        limit=payload.limit,
-    )
-    if result.get("error"):
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-
-@app.post("/api/import/external/cleanup")
-async def api_cleanup_import_external(
-    payload: ExternalCleanupRequest,
-) -> dict[str, Any]:
-    result = cleanup_imported_sessions(
-        scanner_type=payload.scanner_type,
-        dry_run=payload.dry_run,
-        older_than_seconds=payload.older_than_seconds,
-        limit=payload.limit,
-        confirm_token=payload.confirm_token,
-    )
-    if result.get("error"):
-        raise HTTPException(status_code=400, detail=result["error"])
     return result
 
 

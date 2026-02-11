@@ -296,6 +296,44 @@ class TestMemoryDatabase:
             temp_db.get_unprocessed_imported_sessions(limit=10, agent="opencode") == []
         )
 
+    def test_imported_session_queue_shared_across_agents(self, temp_db):
+        """Pending imported sessions should be shared across agents."""
+        session = Session(
+            session_id="imported-shared-001",
+            agent="opencode",
+            project_path="C:/proj",
+            project_name="proj",
+            started_at="1770000001",
+            messages=[Message(role="user", content="shared")],
+        )
+
+        temp_db.upsert_imported_session(
+            session=session,
+            source_scanner="opencode",
+            source_path="C:/external",
+        )
+
+        imported_row = temp_db.list_imported_sessions(agent="opencode", limit=10)[0]
+        payload_raw = str(imported_row["payload"])
+        payload = json.loads(payload_raw)
+        source_updated_at, session_hash = temp_db._extract_imported_session_version(
+            payload_raw=payload_raw,
+            payload=payload,
+        )
+
+        temp_db.mark_session_processed(
+            agent="sisyphus",
+            session_id="imported-shared-001",
+            source_updated_at=source_updated_at,
+            session_hash=session_hash,
+            processor="default",
+        )
+
+        assert temp_db.count_unprocessed_imported_sessions("opencode") == 0
+        assert (
+            temp_db.get_unprocessed_imported_sessions(limit=10, agent="opencode") == []
+        )
+
     def test_list_and_delete_imported_sessions(self, temp_db):
         """Should list and delete imported session queue entries by agent."""
         first = Session(

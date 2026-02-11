@@ -209,6 +209,7 @@ class WorkflowPort(Protocol):
         agent: str,
         session_id: str,
         processor: str = "default",
+        any_agent: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Get latest processed-state row for one session."""
         ...

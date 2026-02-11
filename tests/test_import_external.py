@@ -8,14 +8,12 @@ from pathlib import Path
 
 import gmemory.config as cfg
 from gmemory.models import ProcessedSession
-from gmemory.commands.fetch import fetch_unprocessed_sessions
 from gmemory.commands.import_external import (
     import_external_provider_data,
     preview_external_provider_data,
     cleanup_imported_sessions,
 )
 from gmemory.storage.database import MemoryDatabase
-import gmemory.commands.fetch as fetch_module
 
 
 def _create_opencode_session(
@@ -34,9 +32,7 @@ def _create_opencode_session(
     return payload
 
 
-def test_external_import_queues_sessions_without_creating_memories(
-    tmp_path, monkeypatch
-):
+def test_external_import_queues_sessions_without_creating_memories(tmp_path):
     db_path = tmp_path / "import-external.db"
     original_db_path = cfg.config._config["storage"]["db_path"]
     cfg.config._config["storage"]["db_path"] = str(db_path)
@@ -71,46 +67,13 @@ def test_external_import_queues_sessions_without_creating_memories(
 
         # Source directory can be removed after import; queued session remains processable.
         shutil.rmtree(source_dir)
-        monkeypatch.setattr(
-            fetch_module.ScannerRegistry,
-            "list_scanners",
-            classmethod(lambda cls: []),
-        )
-
-        fetched = fetch_unprocessed_sessions(limit=10, agent="all", scanner_type="all")
-        assert fetched["has_more"] is False
-        assert len(fetched["sessions"]) == 1
-        assert fetched["sessions"][0]["session_id"] == "ext-session-001"
-
-        # Mark processed with matching source version should remove it from pending backlog.
         db = MemoryDatabase()
         try:
             rows = db.list_imported_sessions(agent="opencode", limit=10)
-            payload_raw = str(rows[0]["payload"])
-            payload_obj = json.loads(payload_raw)
-            payload_hash = hashlib.md5(
-                json.dumps(
-                    payload_obj,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            ).hexdigest()
-            source_updated_at = int(payload_obj["started_at"])
-            db.mark_session_processed(
-                agent="opencode",
-                session_id="ext-session-001",
-                source_updated_at=source_updated_at,
-                session_hash=payload_hash,
-                processor="default",
-            )
+            assert len(rows) == 1
+            assert rows[0]["session_id"] == "ext-session-001"
         finally:
             db.close()
-
-        fetched_after = fetch_unprocessed_sessions(
-            limit=10, agent="all", scanner_type="all"
-        )
-        assert fetched_after["sessions"] == []
     finally:
         cfg.config._config["storage"]["db_path"] = original_db_path
 
