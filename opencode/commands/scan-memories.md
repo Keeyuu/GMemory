@@ -10,6 +10,8 @@ description: (opencode - Command) Exhaustively scan ALL unprocessed sessions via
 ### 执行流程
 
 0.  **MCP 工具流程校准 (Mandatory MCP Workflow)**:
+    *   默认运行形态为 single-process `gmemory-service`（统一提供 `/api` 与 `/mcp`）。
+    *   若 MCP 工具连续失败，必须先在报告中提示“检查 `gmemory-service` 是否在线”，再决定是否重试。
     *   在开始前，先向 Subagent 明确：**必须优先使用 GMemory MCP 工具链，不要混用模糊的自定义逻辑**。
     *   必须遵守以下顺序（除非当前步骤无数据）：
         1. `gmemory_stats`：确认 `unprocessed_sessions` 基线。

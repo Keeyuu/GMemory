@@ -59,23 +59,67 @@ gmemory get <memory-id>
 ## 5. Web 与 API
 
 ```bash
-# 启动统一服务（目标态，API + MCP）
+# 默认推荐：启动单进程统一服务（API + MCP + 静态前端托管）
 gmemory-service
 
-# 启动 API（兼容入口，旧命令保留）
+# 兼容入口（fallback，迁移期保留）
 gmemory-web
 
-# 启动前端
+# 前端开发调试（仅 dev）
 cd web
 npm install
 npm run dev
 ```
 
+运行建议：
+
+- 默认推荐只启动 `gmemory-service`（single-process runtime）。
+- 生产/测试环境可由 `gmemory-service` 直接托管 `web/dist`，避免额外前端进程。
+- 前端开发调试仍建议在 `web/` 下使用 `npm run dev`（HMR 与调试体验更好）。
+
+若需要构建静态资源供服务托管：
+
+```bash
+cd web
+npm run build
+```
+
 Web 联调建议：
 
-- 推荐使用 `gmemory-service` + `npm run dev` 做主链路联调。
+- 推荐主链路为 `gmemory-service`；本地前端改动时再叠加 `npm run dev`。
 - 若前端已提供 `/mcp` 调试页，可直接在浏览器访问并验证 MCP 工具调用。
-- 若未提供 `/mcp` 调试页，可保留 `gmemory-mcp` 或 `python -m gmemory.mcp` 作为命令行联调兜底。
+- 若未提供 `/mcp` 调试页，可用 `gmemory-mcp` 或 `python -m gmemory.mcp` 作为 fallback 命令行联调。
+
+最小 PM2 示例（推荐仅单进程）：
+
+```javascript
+module.exports = {
+  apps: [
+    {
+      name: 'gmemory-service',
+      script: 'gmemory-service',
+      interpreter: 'none',
+      autorestart: true,
+      max_restarts: 10,
+      env: {
+        NODE_ENV: 'production',
+      },
+    },
+    // 可选：仅前端 dev 调试时启用
+    // {
+    //   name: 'gmemory-frontend',
+    //   cwd: 'web',
+    //   script: 'npm',
+    //   args: 'run dev',
+    // }
+  ],
+}
+```
+
+```bash
+pm2 start ecosystem.config.js --only gmemory-service
+pm2 save
+```
 
 默认：
 
@@ -85,10 +129,10 @@ Web 联调建议：
 ## 6. MCP
 
 ```bash
-# 启动统一服务（目标态，推荐）
+# 启动统一服务（默认推荐，single-process runtime）
 gmemory-service
 
-# 启动 MCP（兼容入口，旧命令保留）
+# 启动 MCP（fallback 兼容入口，迁移期保留）
 gmemory-mcp
 ```
 
@@ -99,7 +143,7 @@ gmemory-mcp
 3. 使用 `gmemory_add` / `gmemory_update` 写入记忆。
 4. 写入成功后使用 `gmemory_mark_session(session_id=..., agent=...)` 标记处理完成。
 
-兼容说明：`gmemory_fetch_unprocessed` 仍可用，但建议迁移到 `gmemory_session_list`。
+兼容说明：`gmemory_fetch_unprocessed` 仍可用（fallback），但建议迁移到 `gmemory_session_list`。
 
 也可使用：
 

@@ -1,21 +1,27 @@
 {
-  "_comment": "Example configuration for gmemory MCP Server. Prefer absolute command paths to avoid PATH issues in GUI clients.",
+  "_comment": "Example configuration for gmemory MCP Server. For OpenCode, prefer remote mode backed by gmemory-service.",
   "mcpServers": {
     "gmemory": {
       "command": "C:/ABSOLUTE/PATH/TO/gmemory-mcp",
       "args": [],
       "env": {
-        "_comment": "Optional environment variables can be added here if needed"
+        "_comment": "Legacy local stdio fallback for clients that require command mode"
       }
     }
   },
   "opencode_config_example": {
-    "_comment": "For OpenCode, use absolute executable path in command array",
+    "_comment": "Recommended single-process setup: OpenCode remote -> gmemory-service (/mcp/)",
     "gmemory": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8765/mcp/",
+      "enabled": true,
+      "timeout": 10000
+    },
+    "gmemory_local_fallback": {
       "command": [
         "C:/ABSOLUTE/PATH/TO/gmemory-mcp"
       ],
-      "enabled": true,
+      "enabled": false,
       "type": "local"
     }
   }

@@ -11,6 +11,7 @@
 
 ## 2. 目标
 
+- 当前目标态（current target state）为 `gmemory-service` single-process runtime。
 - 将 backend API 与 MCP 运行时合并为单进程服务入口（暂定 `gmemory-service`）。
 - 统一业务层、错误模型、输入输出 schema 与 observability 约束。
 - 建立 Web 对接联调门禁（本地 + CI），确保服务升级可验证、可回滚。

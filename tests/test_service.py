@@ -1,13 +1,15 @@
 import json
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import Response
 from starlette.routing import Mount
 
-from gmemory.service import app, mount_mcp_http
+from gmemory.service import app, mount_mcp_http, mount_web_ui
 
 
 @pytest.fixture(scope="module")
@@ -27,6 +29,15 @@ def test_service_health_endpoint(client: TestClient) -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_service_docs_and_openapi_available(client: TestClient) -> None:
+    docs_response = client.get("/docs")
+    assert docs_response.status_code == 200
+
+    openapi_response = client.get("/openapi.json")
+    assert openapi_response.status_code == 200
+    assert "paths" in openapi_response.json()
 
 
 def test_service_has_mcp_mount_path() -> None:
@@ -87,6 +98,40 @@ def test_service_mcp_minimal_flow(client: TestClient) -> None:
     assert isinstance(tools_list_result["tools"], list)
 
 
+def test_service_web_ui_root_and_spa_fallback(tmp_path: Path) -> None:
+    web_dist = _prepare_web_dist(tmp_path)
+    service_app = _create_test_service_app(web_dist)
+
+    with TestClient(service_app) as test_client:
+        root_response = test_client.get("/")
+        assert root_response.status_code == 200
+        assert "<title>GMemory UI</title>" in root_response.text
+
+        spa_response = test_client.get("/workspace/board")
+        assert spa_response.status_code == 200
+        assert "<title>GMemory UI</title>" in spa_response.text
+
+
+def test_service_web_ui_static_file_hit(tmp_path: Path) -> None:
+    web_dist = _prepare_web_dist(tmp_path)
+    service_app = _create_test_service_app(web_dist)
+
+    with TestClient(service_app) as test_client:
+        asset_response = test_client.get("/assets/app.js")
+        assert asset_response.status_code == 200
+        assert asset_response.text.strip() == "console.log('asset loaded');"
+
+
+def test_service_web_ui_excluded_api_path_no_spa_fallback(tmp_path: Path) -> None:
+    web_dist = _prepare_web_dist(tmp_path)
+    service_app = _create_test_service_app(web_dist)
+
+    with TestClient(service_app) as test_client:
+        not_found_response = test_client.get("/api/missing")
+        assert not_found_response.status_code == 404
+        assert "GMemory UI" not in not_found_response.text
+
+
 def _initialize_mcp_session(client: TestClient) -> str:
     payload = {
         "jsonrpc": "2.0",
@@ -118,3 +163,29 @@ def _decode_mcp_response_json(response: Response) -> dict[str, Any]:
             return json.loads(line[len("data: ") :])
 
     pytest.fail("MCP response does not contain JSON payload")
+
+
+def _prepare_web_dist(tmp_path: Path) -> Path:
+    web_dist = tmp_path / "web" / "dist"
+    assets_dir = web_dist / "assets"
+    assets_dir.mkdir(parents=True)
+    (web_dist / "index.html").write_text(
+        "<!doctype html><html><head><title>GMemory UI</title></head>"
+        "<body><div id='app'></div></body></html>",
+        encoding="utf-8",
+    )
+    (assets_dir / "app.js").write_text(
+        "console.log('asset loaded');\n", encoding="utf-8"
+    )
+    return web_dist
+
+
+def _create_test_service_app(web_dist: Path) -> FastAPI:
+    service_app = FastAPI()
+
+    @service_app.get("/api/health")
+    async def _health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    mount_web_ui(service_app, web_dist=web_dist)
+    return service_app

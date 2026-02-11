@@ -30,17 +30,27 @@ pip install -e .
 
 ```bash
 gmemory --version
-gmemory-mcp --help
 gmemory health
 ```
 
-如果 `gmemory-mcp` 不在 PATH，请使用仓库虚拟环境中的绝对路径（Windows 常见）：
+## 3. 启动统一服务（单进程）
+
+```bash
+gmemory-service
+```
+
+说明：
+
+- `gmemory-service` 同时提供 API（`/api/*`）与 MCP（`/mcp/*`）。
+- 若需托管前端页面，请先在 `web/` 下执行 `npm run build`，服务会读取 `web/dist`。
+
+如果你需要保留本地 stdio fallback，可使用 `gmemory-mcp`（Windows 常见绝对路径示例）：
 
 ```text
 C:\Code\GMemory\.venv\Scripts\gmemory-mcp.exe
 ```
 
-## 3. 配置 MCP（按 AGENT_TARGET）
+## 4. 配置 MCP（按 AGENT_TARGET）
 
 ### 3.1 OpenCode（`AGENT_TARGET=opencode`）
 
@@ -52,15 +62,29 @@ C:\Code\GMemory\.venv\Scripts\gmemory-mcp.exe
 {
   "mcp": {
     "gmemory": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8765/mcp/",
+      "enabled": true
+    }
+  }
+}
+```
+
+可选 fallback（仅在 remote 异常时启用）：
+
+```json
+{
+  "mcp": {
+    "gmemory_local_fallback": {
       "command": ["<ABSOLUTE_PATH_TO_GMEMORY_MCP>"],
-      "enabled": true,
+      "enabled": false,
       "type": "local"
     }
   }
 }
 ```
 
-## 4. 同步 command/subagent 提示词模板
+## 5. 同步 command/subagent 提示词模板
 
 ### 4.1 OpenCode（`AGENT_TARGET=opencode`）
 
@@ -70,7 +94,7 @@ C:\Code\GMemory\.venv\Scripts\gmemory-mcp.exe
 - `opencode/commands/scan-memories.md` -> `~/.config/opencode/commands/scan-memories.md`
 - `opencode/agents/knowledge-archivist.md` -> `~/.config/opencode/agents/knowledge-archivist.md`
 
-## 5. 最终验收
+## 6. 最终验收
 
 ### OpenCode 验收
 
@@ -78,7 +102,7 @@ C:\Code\GMemory\.venv\Scripts\gmemory-mcp.exe
 2. 检查 `gmemory` MCP 可见。
 3. 运行 `scan-memories` / `refine-memory`，确认可调用 `knowledge-archivist`。
 
-## 6. 常见问题
+## 7. 常见问题
 
 - **MCP 启动失败**：确认 `command` 为绝对路径且可执行。
 - **命令模板不生效**：确认文件已复制到用户级目录（不是仅在仓库内存在）。

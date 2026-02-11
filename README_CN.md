@@ -125,24 +125,26 @@ python -m gmemory.mcp
 gmemory health
 gmemory diagnostics
 
-# 3) 启动服务（Web UI 可选）
-gmemory-web
+# 3) 启动统一服务（单进程：API + MCP + Web）
+gmemory-service
+
+# 4) 前端开发调试（可选）
 cd web && npm run dev
 ```
 
 如果 OpenCode 报 MCP `-32000`，优先检查：
 
-1. `~/.config/opencode/opencode.json` 里 `mcp.gmemory.command` 是否为绝对路径（不要只写 `gmemory-mcp`）。
-2. 修改配置后是否完全重启 OpenCode。
-3. `pm2` 保活 `gmemory-api` / `gmemory-frontend` 不会影响 stdio MCP 启动；常见根因是命令路径或环境变量。
+1. `~/.config/opencode/opencode.json` 里 `mcp.gmemory` 是否为 `type: remote` 且 `url` 指向 `http://127.0.0.1:8765/mcp/`。
+2. `gmemory-service` 是否在线（`/api/health` 可访问）。
+3. 修改配置后是否完全重启 OpenCode。
 
 ## Web API 与前端
 
 ```bash
-# 启动 Web API（默认：127.0.0.1:8765）
-gmemory-web
+# 启动统一服务（默认：127.0.0.1:8765）
+gmemory-service
 
-# 启动前端开发服务器
+# 启动前端开发服务器（仅开发调试）
 cd web
 npm install
 npm run dev
@@ -156,20 +158,22 @@ npm run build
 npm run preview -- --host 127.0.0.1 --port 4173
 ```
 
-使用 PM2 后台保活 Web API：
+使用 PM2 后台保活（推荐单进程，仅 gmemory-service）：
 
 ```bash
 # Windows（推荐，无额外终端窗口）
-pm2 start "C:/Code/GMemory/.venv/Scripts/pythonw.exe" --name gmemory-web --cwd "C:/Code/GMemory" -- -m gmemory.webapi
+pm2 start "C:/Code/GMemory/.venv/Scripts/pythonw.exe" --name gmemory-service --cwd "C:/Code/GMemory" -- -m gmemory.service
 
 # 跨平台/基础方式
-pm2 start uv --name gmemory-web --cwd "C:/Code/GMemory" -- run gmemory-web
+pm2 start uv --name gmemory-service --cwd "C:/Code/GMemory" -- run gmemory-service
 
 pm2 save
-pm2 status gmemory-web
+pm2 status gmemory-service
 ```
 
 Windows 说明：PM2 启动 `uv.exe` 时可能会弹出一个终端窗口。使用上面的 `pythonw.exe` 启动方式可避免额外终端窗口。
+
+如需前端 HMR 开发体验，可额外启动 `gmemory-frontend`（可选，不作为默认生产形态）。
 
 ### Preview-First 工作流（Web）
 

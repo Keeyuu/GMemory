@@ -62,6 +62,10 @@ model: local-gemini/gemini-3-pro-preview
 
 每次执行任务，必须按以下顺序走完 MCP 流程，避免遗漏或误用：
 
+0. **服务前置检查**:
+   * 默认假设 GMemory 运行在 single-process `gmemory-service`（统一提供 `/api` 与 `/mcp`）。
+   * 如果连续出现 MCP 工具不可用/连接失败，必须在报告中明确提示：先确认 `gmemory-service` 在线，再继续扫描流程。
+
 1. **建立基线**:
    * `gmemory_stats` 查看当前总量和待处理量。
 2. **会话拉取**:
