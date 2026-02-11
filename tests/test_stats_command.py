@@ -28,10 +28,22 @@ def test_get_stats_counts_only_processed_sessions_present_in_native_source(
     finally:
         db.close()
 
+    class MockScanner:
+        def count_sessions(self):
+            return 3
+
+        def count_unprocessed(self):
+            return 1
+
     monkeypatch.setattr(
         stats_module.ScannerRegistry,
         "list_scanners",
         classmethod(lambda cls: ["opencode"]),
+    )
+    monkeypatch.setattr(
+        stats_module.ScannerRegistry,
+        "create",
+        classmethod(lambda cls, name, incremental=False: MockScanner()),
     )
     monkeypatch.setattr(
         stats_module,

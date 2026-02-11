@@ -523,3 +523,69 @@ class OpenCodeScanner(Scanner):
                     total += len(list(project_path.glob("ses_*.json")))
 
         return total
+
+    def count_unprocessed(self) -> int:
+        """Count number of unprocessed sessions (version-aware).
+
+        Returns:
+            Number of sessions that need processing.
+        """
+        count = 0
+        agent = self.agent
+
+        session_dir = self.storage_dir / "session"
+        if not session_dir.exists():
+            return 0
+
+        # Load incremental state if enabled
+        state = self._state_manager.load() if self._state_manager else None
+
+        with closing(MemoryDatabase()) as db:
+            # Walk through project directories
+            for project_path in session_dir.iterdir():
+                if not project_path.is_dir():
+                    continue
+
+                # Walk through session files in project directory
+                for session_file in project_path.glob("ses_*.json"):
+                    try:
+                        # Incremental check: skip unchanged files
+                        # If the file hasn't changed on disk, it means it was already
+                        # checked against the DB in a previous scan and didn't need reprocessing.
+                        if state and not state.is_file_changed(session_file):
+                            continue
+
+                        with open(session_file, "r", encoding="utf-8") as f:
+                            session_data = json.load(f)
+
+                        actual_session_id = session_data.get("id")
+                        if not actual_session_id:
+                            continue
+
+                        source_updated_at, session_hash = self._compute_session_version(
+                            session_data
+                        )
+                        latest = db.get_latest_processed_session(
+                            agent=agent,
+                            session_id=actual_session_id,
+                            processor="default",
+                            any_agent=True,
+                        )
+                        if self._should_reprocess(
+                            latest=latest,
+                            source_updated_at=source_updated_at,
+                            session_hash=session_hash,
+                        ):
+                            count += 1
+                        else:
+                            # If it doesn't need reprocessing, update state so we skip it next time
+                            if state:
+                                state.update_file_state(session_file, actual_session_id)
+
+                    except (json.JSONDecodeError, OSError):
+                        continue
+
+        if state:
+            self._save_state()
+
+        return count

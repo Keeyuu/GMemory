@@ -60,6 +60,17 @@ class Scanner(ABC):
         """
         pass
 
+    def count_unprocessed(self) -> int:
+        """Count number of unprocessed sessions (version-aware).
+
+        Default implementation returns 0. Subclasses should override this
+        to provide accurate backlog counts.
+
+        Returns:
+            Number of sessions that need processing.
+        """
+        return 0
+
     def get_scan_stats(self) -> Dict[str, int]:
         """Get scanning statistics.
 

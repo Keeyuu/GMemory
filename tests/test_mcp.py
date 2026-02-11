@@ -469,6 +469,11 @@ class TestWorkflowTools:
             "sessions": [{"session_id": "ses-0", "agent": "opencode"}],
             "has_more": False,
             "remaining": 0,
+            "total_pending": 0,
+            "returned": 1,
+            "remaining_after_page": 0,
+            "offset": 0,
+            "next_cursor": None,
         }
 
         from gmemory.mcp.tools.workflow import register_workflow_tools
@@ -489,7 +494,14 @@ class TestWorkflowTools:
 
         assert result["state"] == "unprocessed"
         assert result["scope"] == "gmemory_backlog"
-        mock_fetch.assert_called_once_with(limit=10, agent="all", scanner_type="all")
+        mock_fetch.assert_called_once_with(
+            limit=10,
+            agent="all",
+            scanner_type="all",
+            offset=0,
+            cursor=None,
+            compact=True,
+        )
 
     def test_gmemory_session_list_invalid_state(self) -> None:
         """gmemory_session_list should reject unsupported state values."""
@@ -521,6 +533,11 @@ class TestWorkflowTools:
             "sessions": [{"session_id": "ses-1", "agent": "opencode"}],
             "has_more": False,
             "remaining": 0,
+            "total_pending": 0,
+            "returned": 1,
+            "remaining_after_page": 0,
+            "offset": 0,
+            "next_cursor": None,
         }
 
         from gmemory.mcp.tools.workflow import register_workflow_tools
@@ -542,7 +559,56 @@ class TestWorkflowTools:
         assert result["has_more"] is False
         assert len(result["sessions"]) == 1
         assert "deprecated" in result
-        mock_fetch.assert_called_once_with(limit=10, agent="all", scanner_type="all")
+        mock_fetch.assert_called_once_with(
+            limit=10,
+            agent="all",
+            scanner_type="all",
+            offset=0,
+            cursor=None,
+            compact=True,
+        )
+
+    @patch("gmemory.mcp.tools.workflow.fetch_unprocessed_sessions")
+    def test_gmemory_session_list_forwards_pagination_and_compact(
+        self, mock_fetch: MagicMock
+    ) -> None:
+        """gmemory_session_list should forward offset/cursor/compact arguments."""
+        mock_fetch.return_value = {
+            "sessions": [],
+            "has_more": False,
+            "remaining": 0,
+            "total_pending": 0,
+            "returned": 0,
+            "remaining_after_page": 0,
+            "offset": 2,
+            "next_cursor": None,
+        }
+
+        from gmemory.mcp.tools.workflow import register_workflow_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_workflow_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_session_list":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func(limit=5, offset=2, cursor="8", compact=False)
+        result = json.loads(result_json)
+
+        assert result["offset"] == 2
+        mock_fetch.assert_called_once_with(
+            limit=5,
+            agent="all",
+            scanner_type="all",
+            offset=2,
+            cursor="8",
+            compact=False,
+        )
 
     @patch("gmemory.mcp.tools.workflow.process_sessions")
     def test_gmemory_process_sessions_forwards_args(

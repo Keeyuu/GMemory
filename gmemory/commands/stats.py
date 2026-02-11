@@ -70,10 +70,21 @@ def get_stats() -> Dict[str, Any]:
 
         if requested_scanner == "all":
             for scanner_name in sorted(ScannerRegistry.list_scanners()):
+                scanner = ScannerRegistry.create(
+                    name=scanner_name,
+                    incremental=True,
+                )
+                if not scanner:
+                    continue
+
+                scanner_total = scanner.count_sessions()
+                total_sessions += scanner_total
+                unprocessed_count += scanner.count_unprocessed()
+
+                # Calculate ghost count (sessions in DB but missing locally)
                 snapshot = get_native_session_snapshot(scanner_name)
                 if snapshot.get("supported"):
                     native_ids = snapshot.get("session_ids", set())
-                    total_sessions += len(native_ids)
                     processed_ids = {
                         str(row["session_id"] or "")
                         for row in db.conn.execute(
@@ -82,60 +93,38 @@ def get_stats() -> Dict[str, Any]:
                         )
                         if str(row["session_id"] or "")
                     }
-                    processed_existing = sum(
-                        1
-                        for session_id in native_ids
-                        if session_id in processed_ids_global
-                    )
                     ghost_count += sum(
                         1
                         for session_id in processed_ids
                         if session_id and session_id not in native_ids
                     )
-                    unprocessed_count += max(0, len(native_ids) - processed_existing)
-                else:
-                    scanner = ScannerRegistry.create(
-                        name=scanner_name,
-                        incremental=False,
-                    )
-                    if not scanner:
-                        continue
-                    scanner_total = scanner.count_sessions()
-                    scanner_processed = db.get_processed_session_count(scanner_name)
-                    total_sessions += scanner_total
-                    unprocessed_count += max(0, scanner_total - scanner_processed)
         else:
             scanner_name = requested_scanner
-            snapshot = get_native_session_snapshot(scanner_name)
-            if snapshot.get("supported"):
-                native_ids = snapshot.get("session_ids", set())
-                total_sessions = len(native_ids)
-                processed_ids = {
-                    str(row["session_id"] or "")
-                    for row in db.conn.execute(
-                        "SELECT session_id FROM processed_sessions WHERE agent = ?",
-                        (scanner_name,),
+            scanner = ScannerRegistry.create(
+                name=scanner_name,
+                incremental=True,
+            )
+            if scanner:
+                total_sessions = scanner.count_sessions()
+                unprocessed_count = scanner.count_unprocessed()
+
+                # Calculate ghost count
+                snapshot = get_native_session_snapshot(scanner_name)
+                if snapshot.get("supported"):
+                    native_ids = snapshot.get("session_ids", set())
+                    processed_ids = {
+                        str(row["session_id"] or "")
+                        for row in db.conn.execute(
+                            "SELECT session_id FROM processed_sessions WHERE agent = ?",
+                            (scanner_name,),
+                        )
+                        if str(row["session_id"] or "")
+                    }
+                    ghost_count = sum(
+                        1
+                        for session_id in processed_ids
+                        if session_id and session_id not in native_ids
                     )
-                    if str(row["session_id"] or "")
-                }
-                processed_existing = sum(
-                    1 for session_id in native_ids if session_id in processed_ids_global
-                )
-                ghost_count += sum(
-                    1
-                    for session_id in processed_ids
-                    if session_id and session_id not in native_ids
-                )
-                unprocessed_count = max(0, len(native_ids) - processed_existing)
-            else:
-                scanner = ScannerRegistry.create(
-                    name=scanner_name,
-                    incremental=False,
-                )
-                if scanner:
-                    total_sessions = scanner.count_sessions()
-                    scanner_processed = db.get_processed_session_count(scanner_name)
-                    unprocessed_count = max(0, total_sessions - scanner_processed)
 
         # Breakdown by project
         by_project = {}

@@ -267,6 +267,58 @@ class CopilotScanner(Scanner):
             total += len(list(chat_dir.glob("*.json")))
         return total
 
+    def count_unprocessed(self) -> int:
+        """Count number of unprocessed sessions (version-aware)."""
+        count = 0
+        agent = self.agent
+
+        chat_dirs = self._iter_chat_dirs()
+        if not chat_dirs:
+            return 0
+
+        state = self._state_manager.load() if self._state_manager else None
+
+        with closing(MemoryDatabase()) as db:
+            for chat_dir in chat_dirs:
+                for session_file in chat_dir.glob("*.json"):
+                    try:
+                        if state and not state.is_file_changed(session_file):
+                            continue
+
+                        with open(session_file, "r", encoding="utf-8") as f:
+                            session_data = json.load(f)
+
+                        session_id = session_data.get("sessionId") or session_file.stem
+                        if not session_id:
+                            continue
+
+                        source_updated_at, session_hash = self._compute_session_version(
+                            session_data
+                        )
+                        latest = db.get_latest_processed_session(
+                            agent=agent,
+                            session_id=session_id,
+                            processor="default",
+                            any_agent=True,
+                        )
+                        if self._should_reprocess(
+                            latest=latest,
+                            source_updated_at=source_updated_at,
+                            session_hash=session_hash,
+                        ):
+                            count += 1
+                        else:
+                            if state:
+                                state.update_file_state(session_file, session_id)
+
+                    except (json.JSONDecodeError, OSError):
+                        continue
+
+        if state:
+            self._save_state()
+
+        return count
+
     def get_scan_stats(self) -> Dict[str, int]:
         total_files = self.count_sessions()
         tracked_files = 0

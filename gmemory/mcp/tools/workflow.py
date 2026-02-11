@@ -32,6 +32,9 @@ def register_workflow_tools(server: Any) -> None:
         limit: int,
         agent: str,
         scanner_type: str,
+        offset: int,
+        cursor: Optional[str],
+        compact: bool,
     ) -> Dict[str, Any]:
         resolved_agent = (agent or "all").strip() or "all"
         resolved_scanner = (scanner_type or "all").strip() or "all"
@@ -39,6 +42,9 @@ def register_workflow_tools(server: Any) -> None:
             limit=limit,
             agent=resolved_agent,
             scanner_type=resolved_scanner,
+            offset=offset,
+            cursor=cursor,
+            compact=compact,
         )
 
     @server.tool(
@@ -50,6 +56,9 @@ def register_workflow_tools(server: Any) -> None:
         state: str = "unprocessed",
         agent: str = "all",
         scanner_type: str = "all",
+        offset: int = 0,
+        cursor: Optional[str] = None,
+        compact: bool = True,
     ) -> str:
         """列出会话队列（统一入口）。
 
@@ -58,12 +67,20 @@ def register_workflow_tools(server: Any) -> None:
             state: 队列状态（当前仅支持 unprocessed）。
             agent: agent 过滤（默认 all）。
             scanner_type: 扫描器类型（默认 all，表示聚合全部 scanner）。
+            offset: 分页偏移量。
+            cursor: 分页游标（提供时优先于 offset）。
+            compact: 是否仅返回精简会话 metadata（默认 true）。
 
         返回结构 (JSON):
             {
                 "sessions": [...],
                 "has_more": true/false,
                 "remaining": 0,
+                "total_pending": 0,
+                "returned": 0,
+                "remaining_after_page": 0,
+                "offset": 0,
+                "next_cursor": null,
                 "state": "unprocessed",
                 "scope": "gmemory_backlog"
             }
@@ -83,6 +100,9 @@ def register_workflow_tools(server: Any) -> None:
                 limit=limit,
                 agent=agent,
                 scanner_type=scanner_type,
+                offset=offset,
+                cursor=cursor,
+                compact=compact,
             )
             result["state"] = "unprocessed"
             result["scope"] = "gmemory_backlog"
@@ -98,6 +118,9 @@ def register_workflow_tools(server: Any) -> None:
         limit: int = 10,
         agent: str = "all",
         scanner_type: str = "all",
+        offset: int = 0,
+        cursor: Optional[str] = None,
+        compact: bool = True,
     ) -> str:
         """获取未处理会话列表（支持多 scanner 聚合）。
 
@@ -105,12 +128,20 @@ def register_workflow_tools(server: Any) -> None:
             limit: 返回会话数量上限。
             agent: agent 过滤（默认 all）。
             scanner_type: 扫描器类型（默认 all，表示聚合全部 scanner）。
+            offset: 分页偏移量。
+            cursor: 分页游标（提供时优先于 offset）。
+            compact: 是否仅返回精简会话 metadata（默认 true）。
 
         返回结构 (JSON):
             {
                 "sessions": [...],
                 "has_more": true/false,
                 "remaining": 0,
+                "total_pending": 0,
+                "returned": 0,
+                "remaining_after_page": 0,
+                "offset": 0,
+                "next_cursor": null,
                 "error": "..."  # 仅错误时存在
             }
         """
@@ -122,6 +153,9 @@ def register_workflow_tools(server: Any) -> None:
                 limit=limit,
                 agent=agent,
                 scanner_type=scanner_type,
+                offset=offset,
+                cursor=cursor,
+                compact=compact,
             )
             result["deprecated"] = "Use gmemory_session_list instead"
             return dumps_json(result)
