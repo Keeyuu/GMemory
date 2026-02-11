@@ -49,7 +49,8 @@ model: local-gemini/gemini-3-pro-preview
 
 ## 工具使用规范
 
-*   **读取**: `session_read(session_id=..., include_transcript=true)`
+*   **读取（首选）**: `session_read(session_id=..., include_transcript=true)`
+*   **读取（降级）**: 若 `session_read` 在当前工具集中不可用，使用 `gmemory_process_sessions(limit=..., agent="all", scanner_type="all", auto_mark=false)`，从 `sessions[].messages` 读取正文，并在报告注明降级原因。
 *   **会话枚举**: `gmemory_session_list(limit=100, state="unprocessed", agent="all", scanner_type="all")`
 *   **入库**: `gmemory_add(content=..., preview=..., tags="...", project_path=..., importance="medium/high")`
     *   对于关键的用户偏好或重大架构决策，设为 `high`。
@@ -57,6 +58,13 @@ model: local-gemini/gemini-3-pro-preview
 *   **更新**: `gmemory_update(mem_id=..., content=..., preview=..., tags="...")`
     *   `preview` 与 `content` 必须同时提供。
 *   **查重**: 入库前可简要搜索 (`gmemory_quick_search`) 避免重复，或者相信向量库的语义去重能力（主要依靠后期的 `refine-memory` 任务进行合并，本次扫描以“捕获”为主）。
+
+### 执行边界（防跑偏）
+
+* 禁止使用 `bash/python` 直接读取本地 session/message 文件作为主路径。
+* 禁止手写 HTTP 请求调用 MCP 路由（如直接 POST `/mcp`）；必须通过已暴露的 GMemory MCP 工具调用。
+* 禁止调用不存在或未暴露的伪命令；遇到缺失工具必须显式降级并报告。
+* 主 Agent 下发了 `session_id` 清单时，必须严格按清单处理，禁止越界扫描。
 
 ## MCP 标准作业流程 (SOP)
 
@@ -72,7 +80,8 @@ model: local-gemini/gemini-3-pro-preview
    * `gmemory_session_list(limit=100, state="unprocessed", agent="all", scanner_type="all")` 拉取待处理会话。
    * 若 `has_more=true`，继续分页拉取直到完成。
 3. **完整读取**:
-   * 对待处理会话执行 `session_read(session_id=..., include_transcript=true)`。
+    * 对待处理会话执行 `session_read(session_id=..., include_transcript=true)`。
+    * 若 `session_read` 不可用，改用 `gmemory_process_sessions(..., auto_mark=false)` 的 `sessions[].messages`。
 4. **候选查重**:
    * 用 `gmemory_quick_search` 或 `gmemory_search --compact` 判断是否重复。
 5. **执行写操作**:
@@ -118,4 +127,13 @@ model: local-gemini/gemini-3-pro-preview
    - **Project**: <project_path>
 
 2. ...
+
+### 失败与偏差报告（必填）
+
+若出现工具报错、404、超时、调用中断，必须补充：
+
+* 错误原因（含关键报错摘要）
+* 重试策略与次数
+* 是否触发降级路径（例如 `session_read` -> `gmemory_process_sessions`）
+* 最终状态（resolved / unresolved）
 ```

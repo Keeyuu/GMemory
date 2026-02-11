@@ -13,11 +13,14 @@ description: (opencode - Command) Exhaustively scan ALL unprocessed sessions via
     *   默认运行形态为 single-process `gmemory-service`（统一提供 `/api` 与 `/mcp`）。
     *   若 MCP 工具连续失败，必须先在报告中提示“检查 `gmemory-service` 是否在线”，再决定是否重试。
     *   在开始前，先向 Subagent 明确：**必须优先使用 GMemory MCP 工具链，不要混用模糊的自定义逻辑**。
+    *   **禁止侧路**：不得使用 `bash/python` 直接读本地 session 文件、不得手写 HTTP 请求调用 `/mcp`、不得调用未在当前工具集中暴露的伪命令。
+    *   **工具可用性自检**：若 `session_read` 在当前环境不可用，必须在报告中写明“`session_read` 不可用，改用 `gmemory_process_sessions(..., auto_mark=false)` 返回的 `sessions[].messages` 作为正文来源”，并继续执行，不得中断。
     *   必须遵守以下顺序（除非当前步骤无数据）：
         1. `gmemory_stats`：确认 `unprocessed_sessions` 基线。
         2. `gmemory_session_list(limit=100, state="unprocessed", agent="all", scanner_type="all")`：获取待处理会话列表（仅使用此列表，不依赖 `session_list`）。
         3. 若 `has_more=true`，继续调用 `gmemory_session_list` 直到拉取完成。
         4. `session_read`：按 `gmemory_session_list` 返回的 `session_id` 读取正文（必要时 `include_transcript=true`）。
+           - 若不可用，改为 `gmemory_process_sessions(limit=..., agent="all", scanner_type="all", auto_mark=false)` 读取 `sessions[].messages`。
         5. `gmemory_quick_search` / `gmemory_search --compact`：先查已有记忆，避免重复入库。
         6. `gmemory_add` / `gmemory_update`：写入或更新（必须同时提供 `preview` + `content`）。
         7. `gmemory_mark_session`：仅在写入成功后标记该会话已处理。
@@ -31,9 +34,11 @@ description: (opencode - Command) Exhaustively scan ALL unprocessed sessions via
     *   如果数量为 0，直接结束并报告。
 
 2.  **委托执行 (Delegation)**:
-    *   **必须**调用 `delegate_task` 启动 `knowledge-archivist` 代理。
+    *   **必须**调用 `Task` 工具并指定 `subagent_type="knowledge-archivist"` 启动归档代理。
     *   **给 Subagent 的 Prompt 必须包含以下严格指令**:
         *   **目标**: 遍历所有未处理的会话 ID。
+        *   **范围约束**: 仅处理主 Agent 明确下发的 `session_id` 列表；禁止越界扫描。
+        *   **噪声隔离**: 对“审计分片/子代理接力/continuation prompt”等元会话，默认 `skip` 或仅提炼 1 条流程改进记忆，禁止重复堆砌。
         *   **核心任务**: 从对话中提炼**能促进 Agent 自我进化**的高价值记忆。
         *   **提炼标准**:
             *   **用户偏好 (User Preferences)**: 用户明确要求的编码风格、工具偏好、禁忌事项。（这是 Agent 适应用户的关键）
@@ -56,6 +61,7 @@ description: (opencode - Command) Exhaustively scan ALL unprocessed sessions via
      *   **最终输出**: 向用户展示一份详细的《记忆入库报告》，包含：
          *   扫描会话总数 / 实际入库记忆数。
          *   **新记忆清单**: 每一条都要展示 `[Preview] (Tags)`。
+         *   **偏差审计**: 若出现“工具 404/不可用/调用中断”，必须单列“偏差与纠偏”小节，说明触发点、纠偏动作、是否已恢复。
 
 ### 变更后回归建议（主 Agent 执行）
 
