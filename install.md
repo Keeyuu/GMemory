@@ -94,6 +94,16 @@ C:\Code\GMemory\.venv\Scripts\gmemory-mcp.exe
 - `opencode/commands/scan-memories.md` -> `~/.config/opencode/commands/scan-memories.md`
 - `opencode/agents/knowledge-archivist.md` -> `~/.config/opencode/agents/knowledge-archivist.md`
 
+推荐使用仓库脚本一键同步（包含 prompts，可选同步 `opencode.json`）：
+
+```bash
+# 仅同步 prompts
+python sync_prompts.py
+
+# 同步 prompts + 强制校准 mcp.gmemory 到 remote
+python sync_prompts.py --with-config
+```
+
 ## 6. 最终验收
 
 ### OpenCode 验收
@@ -101,6 +111,26 @@ C:\Code\GMemory\.venv\Scripts\gmemory-mcp.exe
 1. 完全重启 OpenCode。
 2. 检查 `gmemory` MCP 可见。
 3. 运行 `scan-memories` / `refine-memory`，确认可调用 `knowledge-archivist`。
+
+### MCP 改动后的固定回归顺序
+
+当改动涉及 MCP 工具、分页语义、会话工作流时，统一按以下顺序验收：
+
+```bash
+# 1) 先跑目标测试
+python -m pytest tests/test_fetch.py -q
+python -m pytest tests/test_mcp.py -q
+python -m pytest tests/test_service.py -q
+
+# 2) 测试通过后重启服务
+pm2 restart gmemory-service
+pm2 status gmemory-service
+
+# 3) 用 opencode 直连 MCP 做运行态冒烟
+opencode mcp list
+opencode run "请仅调用 gmemory MCP 的 gmemory_stats 工具，并返回 unprocessed_sessions、processed_sessions、total_memories 三个字段。"
+opencode run "请调用 gmemory_session_list，参数: limit=10,state='unprocessed',agent='all',scanner_type='all',compact=true。返回 total_pending、returned、remaining_after_page、next_cursor。若 next_cursor 不为空，再用该 cursor 调一次并返回第二页 returned 与第一页 session_id 是否有重叠。只输出结果。"
+```
 
 ## 7. 常见问题
 

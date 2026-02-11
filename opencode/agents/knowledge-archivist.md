@@ -93,6 +93,14 @@ model: local-gemini/gemini-3-pro-preview
 * 禁止省略 `preview` 字段或把 `preview` 机械复制到 `content` 首段。
 * 禁止“先 mark 后写入”；mark 必须在写入成功之后执行。
 
+## 本地回归顺序（涉及 MCP 改动时）
+
+当任务涉及 MCP 工具链、会话分页语义或 backlog 统计解释时，建议主 Agent 使用固定顺序验收：
+
+1. 先跑 `tests/test_fetch.py`、`tests/test_mcp.py`、`tests/test_service.py`。
+2. 测试通过后执行 `pm2 restart gmemory-service`。
+3. 用 `opencode run` 调用 `gmemory_stats` 与 `gmemory_session_list` 做运行态冒烟，并验证 cursor 翻页无重叠。
+
 ## 输出格式
 
 任务完成后，向主 Agent 汇报结构化结果：

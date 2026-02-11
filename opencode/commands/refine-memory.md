@@ -58,6 +58,14 @@ description: (opencode - Command) Refine, deduplicate, and consolidate GMemory e
     *   **最终输出**: 向用户展示一份《记忆库进化报告》，包含：
         *   记忆总数变化（优化前 vs 优化后）。
         *   **优化亮点**: 列出合并的关键知识点和新发现的模式。
-        *   **下一步建议**: 基于当前记忆状态，建议用户补充哪些领域的知识。
+     *   **下一步建议**: 基于当前记忆状态，建议用户补充哪些领域的知识。
+
+### 变更后回归建议（主 Agent 执行）
+
+若本轮清洗/合并任务伴随 MCP 工具或分页契约调整，报告末尾应附带回归提醒：
+
+1. 执行 `tests/test_fetch.py`、`tests/test_mcp.py`、`tests/test_service.py`。
+2. 执行 `pm2 restart gmemory-service`。
+3. 使用 `opencode run` 验证 `gmemory_stats` 与 `gmemory_session_list` 的运行态结果。
 
 开始执行。让记忆库焕然一新。

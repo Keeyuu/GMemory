@@ -53,8 +53,16 @@ description: (opencode - Command) Exhaustively scan ALL unprocessed sessions via
 3.  **审核与报告 (Review & Report)**:
     *   检查 Subagent 的执行结果。
     *   **质量抽查**: 确保生成的记忆是“智慧的结晶”而非“数据的堆砌”。
-    *   **最终输出**: 向用户展示一份详细的《记忆入库报告》，包含：
-        *   扫描会话总数 / 实际入库记忆数。
-        *   **新记忆清单**: 每一条都要展示 `[Preview] (Tags)`。
+     *   **最终输出**: 向用户展示一份详细的《记忆入库报告》，包含：
+         *   扫描会话总数 / 实际入库记忆数。
+         *   **新记忆清单**: 每一条都要展示 `[Preview] (Tags)`。
+
+### 变更后回归建议（主 Agent 执行）
+
+若本次工作同时修改了 MCP 相关实现或文档约定，建议在报告末尾追加以下验证提醒：
+
+1. 运行 `tests/test_fetch.py`、`tests/test_mcp.py`、`tests/test_service.py`。
+2. 执行 `pm2 restart gmemory-service` 并确认 online。
+3. 使用 `opencode run` 实测 `gmemory_stats` 与 `gmemory_session_list`（含 cursor 翻页无重叠检查）。
 
 开始执行。如果积压任务过多，Subagent 可以分批次报告，但不能停止，直到处理完所有积压。

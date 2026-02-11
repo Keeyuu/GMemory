@@ -156,6 +156,7 @@ python -m gmemory.mcp
 - `opencode`（默认）：
   - 写入 `~/.config/opencode/opencode.json` 的 `mcp.gmemory`。
   - 同步 `opencode/commands/*` 与 `opencode/agents/*`。
+  - 推荐执行 `python sync_prompts.py --with-config` 一次完成用户级同步。
 - `none`：仅安装 Python 模块，不改 Agent 配置。
 
 ## 7. 外置数据导入（当前语义）
@@ -188,6 +189,16 @@ gmemory compact
 ```bash
 uv run pytest -q
 cd web && npm run build
+```
+
+涉及 MCP/分页语义改动时，建议执行固定回归顺序：
+
+```bash
+python -m pytest tests/test_fetch.py -q
+python -m pytest tests/test_mcp.py -q
+python -m pytest tests/test_service.py -q
+pm2 restart gmemory-service
+opencode mcp list
 ```
 
 ## 11. 文档入口

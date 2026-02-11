@@ -114,6 +114,14 @@ python -m gmemory.mcp
 
 具体用户级同步目录与字段（`~/.factory` / `~/.config/opencode`）请按 `install.md` 执行。
 
+推荐每次更新 `opencode/commands/*` 或 `opencode/agents/*` 后执行：
+
+```bash
+python sync_prompts.py --with-config
+```
+
+该命令会同步用户级 prompts，并确保 `~/.config/opencode/opencode.json` 中 `mcp.gmemory` 指向 `http://127.0.0.1:8765/mcp/`。
+
 ### 端到端启动流程（OpenCode + MCP + Web）
 
 ```bash
@@ -137,6 +145,14 @@ cd web && npm run dev
 1. `~/.config/opencode/opencode.json` 里 `mcp.gmemory` 是否为 `type: remote` 且 `url` 指向 `http://127.0.0.1:8765/mcp/`。
 2. `gmemory-service` 是否在线（`/api/health` 可访问）。
 3. 修改配置后是否完全重启 OpenCode。
+
+### MCP 回归验收（固定顺序）
+
+当改动涉及 MCP/分页/会话工作流时，建议固定顺序：
+
+1. 先跑 `tests/test_fetch.py`、`tests/test_mcp.py`、`tests/test_service.py`。
+2. 测试通过后执行 `pm2 restart gmemory-service`。
+3. 最后用 `opencode run` 实测 `gmemory_stats` 与 `gmemory_session_list`（含 cursor 翻页和 session_id 去重验证）。
 
 ## Web API 与前端
 
