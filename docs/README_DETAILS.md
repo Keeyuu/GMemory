@@ -14,21 +14,12 @@ GMemory 是本地优先的 agent memory system，核心由以下模块组成：
 
 ## 2. 安装
 
-### Windows
-
-```powershell
-git clone https://github.com/Keeyuu/GMemory.git
-cd GMemory
-powershell -ExecutionPolicy Bypass -File install.ps1
-```
-
-### Linux/macOS
-
 ```bash
 git clone https://github.com/Keeyuu/GMemory.git
 cd GMemory
-chmod +x install.sh && ./install.sh
 ```
+
+然后按 `install.md` 执行安装与 Agent 配置同步（默认目标 `opencode`）。
 
 ### 手动安装
 
@@ -88,19 +79,35 @@ npm run dev
 gmemory-mcp
 ```
 
+推荐的 MCP 会话工作流（统一接口）：
+
+1. 使用 `gmemory_session_list(limit=100, state="unprocessed", agent="all", scanner_type="all")` 拉取全局未处理会话。
+2. 使用 `session_read(session_id=...)` 读取会话内容并提炼。
+3. 使用 `gmemory_add` / `gmemory_update` 写入记忆。
+4. 写入成功后使用 `gmemory_mark_session(session_id=..., agent=...)` 标记处理完成。
+
+兼容说明：`gmemory_fetch_unprocessed` 仍可用，但建议迁移到 `gmemory_session_list`。
+
 也可使用：
 
 ```bash
 python -m gmemory.mcp
 ```
 
+### Agent 配置同步（install.md）
+
+- `opencode`（默认）：
+  - 写入 `~/.config/opencode/opencode.json` 的 `mcp.gmemory`。
+  - 同步 `opencode/commands/*` 与 `opencode/agents/*`。
+- `none`：仅安装 Python 模块，不改 Agent 配置。
+
 ## 7. 外置数据导入（当前语义）
 
 外置 provider 导入采用“先入队，再处理”模式：
 
 1. Importer 负责扫描并写入未处理队列。
-2. Agent 按常规流程 `fetch/process/save/mark` 处理。
-3. 可通过 pending/processed 观察处理进度。
+2. Agent 按常规流程处理（CLI: `fetch/process/save/mark`，MCP: `gmemory_session_list -> session_read -> add/update -> gmemory_mark_session`）。
+3. `pending` 表示全局未处理总数（跨 agent 共享），可通过 pending/processed 观察处理进度。
 
 这保证了外置数据与本地数据在 agent 视角下使用同一处理逻辑。
 

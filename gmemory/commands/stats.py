@@ -35,16 +35,29 @@ def get_stats() -> Dict[str, Any]:
         ghost_count = 0
         requested_scanner = config.default_scanner
         processed_total = db_stats["processed_sessions"]
-        reprocess_count = 0
-        hash_mismatch_count = 0
+        reprocess_count = db.conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM processed_sessions
+            WHERE LOWER(COALESCE(reason, '')) LIKE '%reprocess%'
+            """
+        ).fetchone()[0]
+        hash_mismatch_count = db.conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM processed_sessions
+            WHERE LOWER(COALESCE(reason, '')) LIKE '%hash_mismatch%'
+               OR LOWER(COALESCE(reason, '')) LIKE '%hash mismatch%'
+            """
+        ).fetchone()[0]
 
-        processed_rows_all = db.list_processed_sessions(agent="all", limit=50000)
-        for row in processed_rows_all:
-            reason = str(row.get("reason") or "").lower()
-            if "reprocess" in reason:
-                reprocess_count += 1
-            if "hash_mismatch" in reason or "hash mismatch" in reason:
-                hash_mismatch_count += 1
+        processed_ids_global = {
+            str(row["session_id"] or "")
+            for row in db.conn.execute(
+                "SELECT DISTINCT session_id FROM processed_sessions"
+            )
+            if str(row["session_id"] or "")
+        }
 
         reprocess_rate = (
             round(reprocess_count / processed_total, 4) if processed_total > 0 else 0.0
@@ -61,15 +74,18 @@ def get_stats() -> Dict[str, Any]:
                 if snapshot.get("supported"):
                     native_ids = snapshot.get("session_ids", set())
                     total_sessions += len(native_ids)
-                    processed_rows = db.list_processed_sessions(
-                        agent=scanner_name,
-                        limit=50000,
-                    )
                     processed_ids = {
-                        str(row.get("session_id") or "") for row in processed_rows
+                        str(row["session_id"] or "")
+                        for row in db.conn.execute(
+                            "SELECT session_id FROM processed_sessions WHERE agent = ?",
+                            (scanner_name,),
+                        )
+                        if str(row["session_id"] or "")
                     }
                     processed_existing = sum(
-                        1 for session_id in native_ids if session_id in processed_ids
+                        1
+                        for session_id in native_ids
+                        if session_id in processed_ids_global
                     )
                     ghost_count += sum(
                         1
@@ -94,15 +110,16 @@ def get_stats() -> Dict[str, Any]:
             if snapshot.get("supported"):
                 native_ids = snapshot.get("session_ids", set())
                 total_sessions = len(native_ids)
-                processed_rows = db.list_processed_sessions(
-                    agent=scanner_name,
-                    limit=50000,
-                )
                 processed_ids = {
-                    str(row.get("session_id") or "") for row in processed_rows
+                    str(row["session_id"] or "")
+                    for row in db.conn.execute(
+                        "SELECT session_id FROM processed_sessions WHERE agent = ?",
+                        (scanner_name,),
+                    )
+                    if str(row["session_id"] or "")
                 }
                 processed_existing = sum(
-                    1 for session_id in native_ids if session_id in processed_ids
+                    1 for session_id in native_ids if session_id in processed_ids_global
                 )
                 ghost_count += sum(
                     1

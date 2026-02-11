@@ -54,31 +54,14 @@ GMemory 是一个轻量级 CLI 工具，为 AI 编程助手提供持久化记忆
 
 ## 安装
 
-### 快速安装（推荐）
+### 安装流程（推荐）
 
-**Windows (PowerShell):**
-```powershell
-git clone https://github.com/Keeyuu/GMemory.git
-cd GMemory
-powershell -ExecutionPolicy Bypass -File install.ps1
-
-# 跳过 Python 模块安装
-powershell -ExecutionPolicy Bypass -File install.ps1 -SkipModules
-```
-
-**Linux/macOS:**
 ```bash
 git clone https://github.com/Keeyuu/GMemory.git
 cd GMemory
-chmod +x install.sh && ./install.sh
-
-# 跳过 Python 模块安装
-./install.sh --skip-modules
 ```
 
-安装脚本会：
-1. 安装 GMemory 包（可跳过）
-2. 创建数据目录 `~/.gmemory/`
+安装与 Agent 同步请直接按 `install.md` 执行。
 
 ### 手动安装
 
@@ -90,15 +73,12 @@ pip install -e .
 uv pip install -e .
 ```
 
-### 安装选项
+### 安装参数（见 install.md）
 
-| 选项 | 描述 |
-|------|------|
-| `--dev` | 安装开发依赖（pytest, mypy） |
-| `--force` | 强制重新安装（先卸载再安装） |
-| `--skip-modules` | 跳过 Python 模块安装 |
+- `AGENT_TARGET=opencode`（默认）
+- `AGENT_TARGET=none`
 
-**升级**：重新运行安装脚本即可升级到最新版本。
+**升级**：重新执行 `install.md` 的安装步骤即可升级到最新版本。
 
 **依赖要求**：Python 3.10+、sqlite-vec、fastembed
 
@@ -130,15 +110,16 @@ python -m gmemory.mcp
 
 客户端配置可参考 `docs/mcp-config.example.json`。
 
-在桌面环境使用 OpenCode 时，建议将 `mcp.gmemory.command` 配置为绝对路径，避免 PATH 解析差异导致连接失败。安装脚本在检测到 `~/.config/opencode/opencode.json` 时会自动写入该配置。
+在桌面环境使用 OpenCode 时，建议将 MCP `command` 配置为绝对路径，避免 PATH 解析差异导致连接失败。
+
+具体用户级同步目录与字段（`~/.factory` / `~/.config/opencode`）请按 `install.md` 执行。
 
 ### 端到端启动流程（OpenCode + MCP + Web）
 
 ```bash
-# 1) 安装 / 升级
-powershell -ExecutionPolicy Bypass -File install.ps1   # Windows
-# 或
-./install.sh                                           # Linux/macOS
+# 1) 安装 / 升级（按 install.md）
+# 默认目标 agent: opencode
+# 可选：none
 
 # 2) 验证 CLI 与 MCP 相关命令
 gmemory health

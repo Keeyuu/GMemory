@@ -143,12 +143,25 @@ def _is_processed_for_source_version(
 
     latest_updated_raw = latest.get("source_updated_at")
     latest_hash = latest.get("session_hash")
+    latest_processed_raw = latest.get("processed_at")
     latest_updated = int(latest_updated_raw) if latest_updated_raw is not None else None
+    latest_processed = (
+        int(latest_processed_raw) if latest_processed_raw is not None else None
+    )
 
     if latest_updated is None and not latest_hash:
-        return False
+        if source_updated_at is None:
+            return True
+        if latest_processed is None:
+            return True
+        return source_updated_at <= latest_processed
     if source_updated_at is not None and latest_updated is None:
-        return False
+        if latest_processed is None:
+            return False
+        if source_updated_at > latest_processed:
+            return False
+        if latest_hash is None:
+            return True
     if (
         source_updated_at is not None
         and latest_updated is not None
@@ -330,6 +343,7 @@ def preview_external_provider_data(
                     agent=normalized_scanner,
                     session_id=session_id,
                     processor="default",
+                    any_agent=True,
                 )
                 if _is_processed_for_source_version(
                     latest=latest,

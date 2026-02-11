@@ -3,6 +3,7 @@
 import json
 import pytest
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -276,6 +277,62 @@ class TestOpenCodeScanner:
                 session_id=session_id,
                 source_updated_at=100,
                 session_hash=session_hash,
+                processor="default",
+            )
+        finally:
+            db.close()
+
+        sessions = scanner.get_unprocessed_sessions(limit=10)
+        assert len(sessions) == 1
+        assert sessions[0].session_id == session_id
+
+    def test_get_unprocessed_sessions_skip_when_marked_without_version_metadata(
+        self, tmp_path, temp_db_path
+    ):
+        session_id = "marked-no-version"
+        self._write_session_file(
+            base_dir=tmp_path,
+            session_id=session_id,
+            created=100,
+            title="No Version Metadata",
+        )
+
+        scanner = OpenCodeScanner(base_dir=tmp_path, incremental=False)
+        db = MemoryDatabase()
+        try:
+            db.mark_session_processed(
+                agent=scanner.agent,
+                session_id=session_id,
+                status="processed",
+                reason="manual mark without source version",
+                processor="default",
+            )
+        finally:
+            db.close()
+
+        sessions = scanner.get_unprocessed_sessions(limit=10)
+        assert sessions == []
+
+    def test_get_unprocessed_sessions_reprocess_when_source_newer_than_processed_at(
+        self, tmp_path, temp_db_path
+    ):
+        session_id = "newer-than-processed-at"
+        future_created = int(time.time()) + 3600
+        self._write_session_file(
+            base_dir=tmp_path,
+            session_id=session_id,
+            created=future_created,
+            title="Future Update",
+        )
+
+        scanner = OpenCodeScanner(base_dir=tmp_path, incremental=False)
+        db = MemoryDatabase()
+        try:
+            db.mark_session_processed(
+                agent=scanner.agent,
+                session_id=session_id,
+                status="processed",
+                reason="manual mark without source version",
                 processor="default",
             )
         finally:

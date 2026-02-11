@@ -389,6 +389,130 @@ class TestStatsTools:
 class TestWorkflowTools:
     """Test workflow-related MCP tools."""
 
+    @patch("gmemory.mcp.tools.workflow.fetch_unprocessed_sessions")
+    def test_gmemory_session_list_defaults(self, mock_fetch: MagicMock) -> None:
+        """gmemory_session_list should return unified backlog payload."""
+        mock_fetch.return_value = {
+            "sessions": [{"session_id": "ses-0", "agent": "opencode"}],
+            "has_more": False,
+            "remaining": 0,
+        }
+
+        from gmemory.mcp.tools.workflow import register_workflow_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_workflow_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_session_list":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func()
+        result = json.loads(result_json)
+
+        assert result["state"] == "unprocessed"
+        assert result["scope"] == "gmemory_backlog"
+        mock_fetch.assert_called_once_with(limit=10, agent="all", scanner_type="all")
+
+    def test_gmemory_session_list_invalid_state(self) -> None:
+        """gmemory_session_list should reject unsupported state values."""
+        from gmemory.mcp.tools.workflow import register_workflow_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_workflow_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_session_list":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func(state="all")
+        result = json.loads(result_json)
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "VALIDATION_ERROR"
+
+    @patch("gmemory.mcp.tools.workflow.fetch_unprocessed_sessions")
+    def test_gmemory_fetch_unprocessed_defaults(self, mock_fetch: MagicMock) -> None:
+        """gmemory_fetch_unprocessed should call fetch with global defaults."""
+        mock_fetch.return_value = {
+            "sessions": [{"session_id": "ses-1", "agent": "opencode"}],
+            "has_more": False,
+            "remaining": 0,
+        }
+
+        from gmemory.mcp.tools.workflow import register_workflow_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_workflow_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_fetch_unprocessed":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func()
+        result = json.loads(result_json)
+
+        assert result["has_more"] is False
+        assert len(result["sessions"]) == 1
+        assert "deprecated" in result
+        mock_fetch.assert_called_once_with(limit=10, agent="all", scanner_type="all")
+
+    @patch("gmemory.mcp.tools.workflow.process_sessions")
+    def test_gmemory_process_sessions_forwards_args(
+        self, mock_process: MagicMock
+    ) -> None:
+        """gmemory_process_sessions should forward workflow parameters."""
+        mock_process.return_value = {
+            "sessions": [{"session_id": "ses-2", "agent": "opencode"}],
+            "total": 1,
+            "status": "pending",
+            "workflow": {"commands": []},
+        }
+
+        from gmemory.mcp.tools.workflow import register_workflow_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_workflow_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_process_sessions":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func(
+            limit=20,
+            agent="opencode",
+            scanner_type="all",
+            auto_mark=False,
+            show_backlog=False,
+        )
+        result = json.loads(result_json)
+
+        assert result["total"] == 1
+        assert result["status"] == "pending"
+        mock_process.assert_called_once_with(
+            limit=20,
+            agent="opencode",
+            scanner_type="all",
+            auto_mark=False,
+            show_backlog=False,
+        )
+
     @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
     def test_gmemory_mark_session_applied_or_noop(self, mock_db_cls: MagicMock) -> None:
         """gmemory_mark_session should return applied/noop result envelope."""
@@ -521,6 +645,66 @@ class TestWorkflowTools:
         assert result["ok"] is True
         assert result["count"] == 2
         assert result["results"][0]["needs_reprocess"] is True
+        assert result["results"][1]["needs_reprocess"] is True
+
+    @patch("gmemory.mcp.tools.workflow.MemoryDatabase")
+    def test_gmemory_get_processed_status_fallback_to_processed_at(
+        self, mock_db_cls: MagicMock
+    ) -> None:
+        """When version fields are absent, processed_at should gate reprocess."""
+        db = MagicMock()
+        db.get_latest_processed_session.side_effect = [
+            {
+                "session_id": "ses-old",
+                "agent": "opencode",
+                "processed_at": 200,
+                "source_updated_at": None,
+                "session_hash": None,
+            },
+            {
+                "session_id": "ses-new",
+                "agent": "opencode",
+                "processed_at": 200,
+                "source_updated_at": None,
+                "session_hash": None,
+            },
+        ]
+        mock_db_cls.return_value = db
+
+        from gmemory.mcp.tools.workflow import register_workflow_tools
+        from mcp.server.fastmcp import FastMCP
+
+        server = FastMCP(name="test")
+        register_workflow_tools(server)
+
+        tool_func = None
+        for tool in server._tool_manager._tools.values():
+            if tool.name == "gmemory_get_processed_status":
+                tool_func = tool.fn
+                break
+
+        assert tool_func is not None
+        result_json = tool_func(
+            items_json=json.dumps(
+                [
+                    {
+                        "session_id": "ses-old",
+                        "agent": "opencode",
+                        "source_updated_at": 150,
+                    },
+                    {
+                        "session_id": "ses-new",
+                        "agent": "opencode",
+                        "source_updated_at": 250,
+                    },
+                ]
+            )
+        )
+        result = json.loads(result_json)
+
+        assert result["ok"] is True
+        assert result["count"] == 2
+        assert result["results"][0]["needs_reprocess"] is False
         assert result["results"][1]["needs_reprocess"] is True
 
     @patch("gmemory.mcp.tools.workflow.MemoryDatabase")

@@ -85,15 +85,25 @@ class OpenCodeScanner(Scanner):
 
         latest_updated_raw = latest.get("source_updated_at")
         latest_hash = latest.get("session_hash")
+        latest_processed_raw = latest.get("processed_at")
         latest_updated = (
             int(latest_updated_raw) if latest_updated_raw is not None else None
         )
+        latest_processed = (
+            int(latest_processed_raw) if latest_processed_raw is not None else None
+        )
 
         if latest_updated is None and not latest_hash:
-            return True
+            if source_updated_at is None:
+                return False
+            if latest_processed is None:
+                return False
+            return source_updated_at > latest_processed
 
         if source_updated_at is not None and latest_updated is None:
-            return True
+            if latest_processed is None:
+                return True
+            return source_updated_at > latest_processed
 
         if (
             source_updated_at is not None
@@ -103,6 +113,8 @@ class OpenCodeScanner(Scanner):
             return True
 
         if latest_hash is None:
+            if source_updated_at is not None and latest_processed is not None:
+                return source_updated_at > latest_processed
             return True
 
         if session_hash != latest_hash:
@@ -249,6 +261,7 @@ class OpenCodeScanner(Scanner):
                             agent=agent,
                             session_id=actual_session_id,
                             processor="default",
+                            any_agent=True,
                         )
                         if not self._should_reprocess(
                             latest=latest,
