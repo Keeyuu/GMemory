@@ -1,74 +1,52 @@
 ---
 name: scan-memories
-description: (opencode - Command) Exhaustively scan ALL unprocessed sessions via Subagent to extract evolution-driving memories.
+description: (opencode - Command) Review and audit recent memories in mcp-memory-service to ensure quality and consistency.
 ---
 
-你现在的任务是担任 **GMemory 首席审计官**。你需要指挥 Subagent 对**所有**尚未归档的会话进行全量扫描，提炼能促进 Agent **自我进化**的高价值记忆。
-
-**严禁偷懒：必须处理积压的所有会话，不得人为截断或仅处理最近几条。**
+你现在的任务是担任 **GMemory 审计官**。由于当前环境无法直接扫描历史会话文件，你的主要职责是**审计已存入的近期记忆**，确保其质量、标签准确性，并清理重复或无效条目。
 
 ### 执行流程
 
-0.  **MCP 工具流程校准 (Mandatory MCP Workflow)**:
-    *   默认运行形态为 single-process `gmemory-service`（统一提供 `/api` 与 `/mcp`）。
-    *   若 MCP 工具连续失败，必须先在报告中提示“检查 `gmemory-service` 是否在线”，再决定是否重试。
-    *   在开始前，先向 Subagent 明确：**必须优先使用 GMemory MCP 工具链，不要混用模糊的自定义逻辑**。
-    *   **禁止侧路**：不得使用 `bash/python` 直接读本地 session 文件、不得手写 HTTP 请求调用 `/mcp`、不得调用未在当前工具集中暴露的伪命令。
-    *   **工具可用性自检**：若 `session_read` 在当前环境不可用，必须在报告中写明“`session_read` 不可用，改用 `gmemory_process_sessions(..., auto_mark=false)` 返回的 `sessions[].messages` 作为正文来源”，并继续执行，不得中断。
-    *   必须遵守以下顺序（除非当前步骤无数据）：
-        1. `gmemory_stats`：确认 `unprocessed_sessions` 基线。
-        2. `gmemory_session_list(limit=100, state="unprocessed", agent="all", scanner_type="all")`：获取待处理会话列表（仅使用此列表，不依赖 `session_list`）。
-        3. 若 `has_more=true`，继续调用 `gmemory_session_list` 直到拉取完成。
-        4. `session_read`：按 `gmemory_session_list` 返回的 `session_id` 读取正文（必要时 `include_transcript=true`）。
-           - 若不可用，改为 `gmemory_process_sessions(limit=..., agent="all", scanner_type="all", auto_mark=false)` 读取 `sessions[].messages`。
-        5. `gmemory_quick_search` / `gmemory_search --compact`：先查已有记忆，避免重复入库。
-        6. `gmemory_add` / `gmemory_update`：写入或更新（必须同时提供 `preview` + `content`）。
-        7. `gmemory_mark_session`：仅在写入成功后标记该会话已处理。
-        8. `gmemory_get`：抽查新写入 ID，验证内容和标签是否正确。
-        9. `gmemory_stats` / `gmemory_recent`：复核写入结果与数量变化。
-    *   若工具报错，Subagent 必须记录错误原因、重试策略和最终状态，不能静默失败。
+1.  **服务健康检查**:
+    *   调用 `check_database_health()` 确认服务在线且数据库连接正常。
+    *   记录当前 `total_memories` 数量。
 
-1.  **评估积压 (Assessment)**:
-    *   运行 `gmemory_stats` 查看 `unprocessed_sessions` 数量。
-    *   运行 `gmemory_session_list(limit=100, state="unprocessed", agent="all", scanner_type="all")` 获取本轮会话列表。
-    *   如果数量为 0，直接结束并报告。
+2.  **拉取近期记忆**:
+    *   调用 `list_memories(page=1, page_size=20)` 获取最近存入的 20 条记忆。
+    *   如果需要更深入审计，可翻页 (`page=2`, `page=3`...)。
 
-2.  **委托执行 (Delegation)**:
-    *   **必须**调用 `Task` 工具并指定 `subagent_type="knowledge-archivist"` 启动归档代理。
-    *   **给 Subagent 的 Prompt 必须包含以下严格指令**:
-        *   **目标**: 遍历所有未处理的会话 ID。
-        *   **范围约束**: 仅处理主 Agent 明确下发的 `session_id` 列表；禁止越界扫描。
-        *   **噪声隔离**: 对“审计分片/子代理接力/continuation prompt”等元会话，默认 `skip` 或仅提炼 1 条流程改进记忆，禁止重复堆砌。
-        *   **核心任务**: 从对话中提炼**能促进 Agent 自我进化**的高价值记忆。
-        *   **提炼标准**:
-            *   **用户偏好 (User Preferences)**: 用户明确要求的编码风格、工具偏好、禁忌事项。（这是 Agent 适应用户的关键）
-            *   **通用解决方案 (Universal Solutions)**: 解决特定报错或问题的完整路径。（需剥离具体项目上下文，使其通用化，提升 Agent 解决类似问题的能力）
-            *   **架构模式 (Architecture Patterns)**: 项目中确立的设计模式、目录结构规范。（提升 Agent 对项目架构的理解）
-            *   **无效信息过滤**: 严禁收录闲聊、简单的 API 查询、未完成的尝试、特定于一次性任务的临时信息。
-        *   **入库动作**:
-            *   使用 `gmemory_add`，并且提交参数必须同时包含 `preview` 与 `content`。
-            *   `preview`: 必须是一句话摘要，由 Subagent 主动撰写；禁止由代码自动裁剪生成。
-            *   `content` (记忆全部内容): 必须是**经过抽象和总结**的独立知识点，**禁止**直接复制粘贴对话原文；第一段无需重复 `preview`，应直接进入可复用知识正文。
-            *   `tags`: 必须丰富且准确（参考 `gmemory_tags`）。
-            *   `project_path`: 必须推断并填入。
-        *   **返回格式**: 执行完毕后，向我汇报一份结构化清单，包含：`Session ID`, `Memory ID`, `Preview` (内容简要概述,必须是一句话讲清), `Tags`。
-        *   **MCP 执行证据 (Required)**:
-            *   报告中必须附带关键调用证据：本轮 `gmemory_session_list` 的会话总数、`gmemory_add`/`gmemory_update` 的 ID 列表、对应 `session_id -> gmemory_mark_session` 映射、抽查过的 `gmemory_get` 结果摘要、前后 `gmemory_stats` 对比。
+3.  **质量评估 (Audit)**:
+    *   **遍历**每一条记忆，检查以下指标：
+        *   **内容质量**: 是否经过了提炼？（而不是直接复制的对话）是否包含足够上下文？
+        *   **类型准确性**: `metadata.type` (或隐含类型) 是否符合 `preference`, `solution`, `decision` 等标准分类？
+        *   **标签完整性**: 是否有足够的标签？标签是否准确？
+    *   **识别问题**: 标记出内容空洞、重复、标签混乱的记忆。
 
-3.  **审核与报告 (Review & Report)**:
-    *   检查 Subagent 的执行结果。
-    *   **质量抽查**: 确保生成的记忆是“智慧的结晶”而非“数据的堆砌”。
-     *   **最终输出**: 向用户展示一份详细的《记忆入库报告》，包含：
-         *   扫描会话总数 / 实际入库记忆数。
-         *   **新记忆清单**: 每一条都要展示 `[Preview] (Tags)`。
-         *   **偏差审计**: 若出现“工具 404/不可用/调用中断”，必须单列“偏差与纠偏”小节，说明触发点、纠偏动作、是否已恢复。
+4.  **修正与优化 (Refinement)**:
+    *   **调用 Subagent** (`knowledge-archivist`) 或直接执行修正动作：
+        *   **补充**: 对标签缺失的记忆，使用 `delete_memory` (旧) + `store_memory` (新) 的方式进行更新（目前 API 不支持直接 update，需通过替换实现）。
+        *   **清理**: 对明显无效或重复的记忆，调用 `delete_memory(content_hash=...)`。
+        *   **合并**: 发现多条相似记忆时，合并为一条高质量记忆存入，并删除旧条目。
 
-### 变更后回归建议（主 Agent 执行）
+5.  **报告输出**:
+    *   向用户汇报审计结果：
+        *   **健康状态**: 服务状态及总记忆数。
+        *   **审计范围**: 检查了最近 N 条记忆。
+        *   **优化行动**: 列出执行的删除、合并或重新录入操作。
+        *   **质量评分**: 对当前近期记忆的整体质量给出简评（优/良/差）。
 
-若本次工作同时修改了 MCP 相关实现或文档约定，建议在报告末尾追加以下验证提醒：
+### 给 Subagent (Knowledge Archivist) 的指令模板 (如果使用委托)
 
-1. 运行 `tests/test_fetch.py`、`tests/test_mcp.py`、`tests/test_service.py`。
-2. 执行 `pm2 restart gmemory-service` 并确认 online。
-3. 使用 `opencode run` 实测 `gmemory_stats` 与 `gmemory_session_list`（含 cursor 翻页无重叠检查）。
+```markdown
+请审计以下记忆列表（或调用 list_memories 自行获取）：
+1. 检查是否存在重复内容，若有，请合并。
+2. 检查标签是否规范，若不规范，请重新存储并删除旧的。
+3. 识别高价值但描述模糊的记忆，尝试根据你的知识库（Training Data）进行补全（慎用，确保准确）。
+```
 
-开始执行。如果积压任务过多，Subagent 可以分批次报告，但不能停止，直到处理完所有积压。
+### 异常处理
+
+*   若 `list_memories` 返回空，报告“当前无近期记忆”。
+*   若工具调用失败，请记录错误并尝试重试一次。
+
+**注意**: 本命令不再执行全量会话扫描（Legacy 模式），专注于**记忆库的维护与质量控制**。
